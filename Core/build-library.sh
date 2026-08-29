@@ -1,8 +1,7 @@
 #!/bin/sh
 # Fetches and builds the packaged engine library for all Apple platforms.
 # The engine source location comes from the environment so this repository
-# stays self-contained. Requires Go >= 1.21 with gomobile installed
-# (go install golang.org/x/mobile/cmd/gomobile@latest && gomobile init).
+# stays self-contained. Requires Go >= 1.21.
 set -eu
 
 : "${CORE_REPO_URL:?Set CORE_REPO_URL to the engine source repository URL}"
@@ -10,6 +9,8 @@ CORE_REF="${CORE_REF:-testing}"
 CORE_DIR="${CORE_DIR:-$PWD/.core-src}"
 OUT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_FRAMEWORK="$OUT_DIR/Libbox.xcframework"
+
+export PATH="$HOME/go/bin:$PATH"
 
 if [ -d "$CORE_DIR" ]; then
     echo "Using existing checkout at $CORE_DIR"
@@ -19,12 +20,18 @@ else
 fi
 
 cd "$CORE_DIR"
-echo "Building engine library (this takes a while)..."
-make libbox
 
-BUILT="$(find . -maxdepth 2 -name 'libbox.xcframework' | head -n 1)"
+echo "Installing the gomobile fork the engine build expects..."
+go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
+go install github.com/sagernet/gomobile/cmd/gobind@v0.1.13
+gomobile init
+
+echo "Building engine library (this takes a while)..."
+go run ./cmd/internal/build_libbox -target apple
+
+BUILT="$(find . -maxdepth 3 -name 'Libbox.xcframework' | head -n 1)"
 if [ -z "$BUILT" ]; then
-    echo "error: libbox.xcframework not found after build" >&2
+    echo "error: Libbox.xcframework not found after build" >&2
     exit 1
 fi
 
