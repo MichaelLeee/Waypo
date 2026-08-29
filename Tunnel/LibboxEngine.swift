@@ -47,7 +47,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
     }
 
     func stop() async {
-        commandServer?.closeService()
+        try? commandServer?.closeService()
         commandServer?.close()
         commandServer = nil
         logger.info("engine stopped")
@@ -127,7 +127,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
 }
 
 /// Applies network settings on behalf of the engine and hands over the tun fd.
-final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol {
+final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, LibboxCommandServerHandlerProtocol {
     private static let logger = Logger(subsystem: "org.waypo", category: "engine-platform")
     private let tunnel: NEPacketTunnelProvider
 
@@ -244,10 +244,10 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol {
         // The engine calls openTun synchronously on its own thread; the provider
         // and settings are used exactly once here and not touched concurrently,
         // which is what the unsafe annotation attests to.
-        nonisolated(unsafe) let tunnel = self.tunnel
-        nonisolated(unsafe) let settings = settings
+        nonisolated(unsafe) let tunnelForCall = self.tunnel
+        nonisolated(unsafe) let settingsForCall = settings
         try runBlocking {
-            try await tunnel.setTunnelNetworkSettings(settings)
+            try await tunnelForCall.setTunnelNetworkSettings(settingsForCall)
         }
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
@@ -296,15 +296,15 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol {
 
     func startDefaultInterfaceMonitor(_ listener: LibboxInterfaceUpdateListenerProtocol?) throws {
         guard let listener else { return }
-        nonisolated(unsafe) let listener = listener
+        nonisolated(unsafe) let listenerForMonitor = listener
         let monitor = NWPathMonitor()
         nwMonitor = monitor
         let semaphore = DispatchSemaphore(value: 0)
         monitor.pathUpdateHandler = { path in
-            Self.updateDefaultInterface(listener, path)
+            Self.updateDefaultInterface(listenerForMonitor, path)
             semaphore.signal()
             monitor.pathUpdateHandler = { path in
-                Self.updateDefaultInterface(listener, path)
+                Self.updateDefaultInterface(listenerForMonitor, path)
             }
         }
         monitor.start(queue: DispatchQueue.global())
@@ -388,7 +388,7 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol {
     func clearDNSCache() {}
 
     func serviceStop() throws {
-        tunnel.cancelTunnel(with: .none)
+        tunnel.cancelTunnelWithError(nil)
     }
 
     func serviceReload() throws {}
