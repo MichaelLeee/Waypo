@@ -8,25 +8,32 @@ import Observation
 final class TunnelController {
     private(set) var status: NEVPNStatus = .invalid
     private(set) var lastError: String?
+    var configuration: TunnelConfiguration = .default
 
     private let store = TunnelStore()
     private var manager: NETunnelProviderManager?
     private var observing = false
 
-    var configuration: TunnelConfiguration {
-        store.loadConfiguration()
-    }
-
-    func saveConfiguration(_ config: TunnelConfiguration) {
-        do {
-            try store.saveConfiguration(config)
-            lastError = nil
-        } catch {
-            lastError = error.localizedDescription
+    var statusLabel: String {
+        switch status {
+        case .connected: "Connected"
+        case .connecting: "Connecting…"
+        case .disconnecting: "Disconnecting…"
+        case .disconnected: "Disconnected"
+        case .invalid: "Profile not installed"
+        case .reasserting: "Reasserting…"
+        @unknown default: "Unknown"
         }
     }
 
+    var isActive: Bool { status == .connected || status == .connecting }
+
+    func isActiveServer(_ id: TunnelServer.ID) -> Bool {
+        configuration.servers.first?.id == id
+    }
+
     func refresh() async {
+        configuration = store.loadConfiguration()
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
             let manager = managers.first { $0.localizedDescription == Self.profileTitle }
@@ -49,6 +56,42 @@ final class TunnelController {
             default:
                 break
             }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Server management
+
+    func addServer(_ server: TunnelServer) {
+        configuration.servers.append(server)
+        persist()
+    }
+
+    func updateServer(_ server: TunnelServer) {
+        guard let index = configuration.servers.firstIndex(where: { $0.id == server.id }) else { return }
+        configuration.servers[index] = server
+        persist()
+    }
+
+    func deleteServer(_ id: TunnelServer.ID) {
+        configuration.servers.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// The engine routes through `servers.first`, so activating a server
+    /// means moving it to the front of the list.
+    func setActiveServer(_ id: TunnelServer.ID) {
+        guard let index = configuration.servers.firstIndex(where: { $0.id == id }), index != 0 else { return }
+        let server = configuration.servers.remove(at: index)
+        configuration.servers.insert(server, at: 0)
+        persist()
+    }
+
+    private func persist() {
+        do {
+            try store.saveConfiguration(configuration)
+            lastError = nil
         } catch {
             lastError = error.localizedDescription
         }

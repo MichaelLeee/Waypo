@@ -1,6 +1,7 @@
 import Foundation
 
-struct TunnelServer: Codable, Hashable, Sendable {
+struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
+    var id: UUID
     var name: String
     var host: String
     var port: Int
@@ -16,12 +17,13 @@ struct TunnelServer: Codable, Hashable, Sendable {
     var serverName: String?
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, transport, credentials, cipher, useTLS, serverName
+        case id, name, host, port, transport, credentials, cipher, useTLS, serverName
     }
 
-    init(name: String, host: String, port: Int, transport: String = "direct",
+    init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
          credentials: String? = nil, cipher: String? = nil,
          useTLS: Bool = false, serverName: String? = nil) {
+        self.id = id
         self.name = name
         self.host = host
         self.port = port
@@ -34,6 +36,7 @@ struct TunnelServer: Codable, Hashable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
         host = try container.decode(String.self, forKey: .host)
         port = try container.decode(Int.self, forKey: .port)

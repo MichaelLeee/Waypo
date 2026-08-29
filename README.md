@@ -6,7 +6,7 @@ A personal study project for Apple-platform networking: a SwiftUI multiplatform 
 
 ```
 Waypo.xcodeproj/     5 targets: Waypo (iOS/iPadOS), WaypoMac, WaypoTunnel (iOS), WaypoTunnelMac, WaypoHarness
-Shared/              Code compiled into all targets: config model, store, controller, engine boundary
+Shared/              Code compiled into all targets: config model, store, controller, engine boundary, UI
 Waypo/               iOS/iPadOS app entry
 WaypoMac/            macOS app entry
 Tunnel/              Packet tunnel provider extension code (shared by both platforms)
