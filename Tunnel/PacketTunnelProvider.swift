@@ -1,4 +1,4 @@
-import NetworkExtension
+@preconcurrency import NetworkExtension
 import os
 
 /// The framework hands out completion handlers without Sendable annotations.

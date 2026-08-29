@@ -56,7 +56,6 @@ struct ServerEditorView: View {
                 }
             }
             .navigationTitle(mode.title)
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
