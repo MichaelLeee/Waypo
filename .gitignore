@@ -1,0 +1,14 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+Packages/
+xcshareddata/xcscmproof.xcscmproof
+*.xcscheme.orig
+.swiftpm
+.build/
+netrc
