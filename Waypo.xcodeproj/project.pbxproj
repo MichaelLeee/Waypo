@@ -61,6 +61,23 @@
 		AA000000000000000000000C /* WaypoHarness */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WaypoHarness; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AA0000000000000000000052 /* Exceptions for "Tunnel" folder in "WaypoTunnel" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA0000000000000000000012 /* WaypoTunnel */;
+		};
+		AA0000000000000000000053 /* Exceptions for "Tunnel" folder in "WaypoTunnelMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA0000000000000000000013 /* WaypoTunnelMac */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA0000000000000000000004 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -79,6 +96,10 @@
 		};
 		AA0000000000000000000007 /* Tunnel */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AA0000000000000000000052 /* Exceptions for "Tunnel" folder in "WaypoTunnel" target */,
+				AA0000000000000000000053 /* Exceptions for "Tunnel" folder in "WaypoTunnelMac" target */,
+			);
 			path = Tunnel;
 			sourceTree = "<group>";
 		};

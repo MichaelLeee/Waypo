@@ -2,13 +2,17 @@ import Foundation
 
 /// Persists tunnel configuration in the App Group container so both the app
 /// and the packet tunnel extension read the same source of truth.
-struct TunnelStore: Sendable {
+struct TunnelStore {
     static let appGroupID = "group.org.waypo"
 
-    private let defaults: UserDefaults?
+    private let suiteName: String
 
-    init(defaults: UserDefaults? = UserDefaults(suiteName: TunnelStore.appGroupID)) {
-        self.defaults = defaults
+    init(suiteName: String = TunnelStore.appGroupID) {
+        self.suiteName = suiteName
+    }
+
+    private var defaults: UserDefaults? {
+        UserDefaults(suiteName: suiteName)
     }
 
     func loadConfiguration() -> TunnelConfiguration {
