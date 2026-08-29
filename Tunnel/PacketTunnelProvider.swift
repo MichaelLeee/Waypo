@@ -1,6 +1,15 @@
 import NetworkExtension
 import os
 
+/// The framework hands out completion handlers without Sendable annotations.
+/// Each one is invoked exactly once from a single task, so boxing it keeps the
+/// strict-concurrency checks satisfied without changing behavior.
+private struct CompletionHandler: @unchecked Sendable {
+    private let handler: (Error?) -> Void
+    init(_ handler: @escaping (Error?) -> Void) { self.handler = handler }
+    func callAsFunction(_ error: Error?) { handler(error) }
+}
+
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let logger = Logger(subsystem: "org.waypo", category: "packet-tunnel")
 
@@ -9,6 +18,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let remoteAddress = config.servers.first?.host ?? "198.18.0.1"
         let logger = self.logger
         let packetFlow = self.packetFlow
+        let completion = CompletionHandler(completionHandler)
         logger.info("starting tunnel, remote=\(remoteAddress, privacy: .public)")
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: remoteAddress)
@@ -27,7 +37,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         setTunnelNetworkSettings(settings) { error in
             if let error {
                 logger.error("network settings failed: \(error.localizedDescription, privacy: .public)")
-                completionHandler(error)
+                completion(error)
                 return
             }
             let flow = NetworkExtensionPacketFlow(flow: packetFlow)
@@ -36,9 +46,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 do {
                     try await engine.start(configuration: config, packetFlow: flow)
                     logger.info("tunnel up (engine running)")
-                    completionHandler(nil)
+                    completion(nil)
                 } catch {
-                    completionHandler(error)
+                    completion(error)
                 }
             }
         }
