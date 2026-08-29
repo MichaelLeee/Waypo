@@ -4,6 +4,45 @@ struct TunnelServer: Codable, Hashable, Sendable {
     var name: String
     var host: String
     var port: Int
+
+    /// Transport identifier understood by the engine (for example "direct").
+    var transport: String = "direct"
+    /// Shared secret or user credential, interpreted by the engine.
+    var credentials: String?
+    /// Cipher name for transports that take one.
+    var cipher: String?
+    var useTLS: Bool = false
+    /// TLS server name override; defaults to `host` when TLS is enabled.
+    var serverName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, host, port, transport, credentials, cipher, useTLS, serverName
+    }
+
+    init(name: String, host: String, port: Int, transport: String = "direct",
+         credentials: String? = nil, cipher: String? = nil,
+         useTLS: Bool = false, serverName: String? = nil) {
+        self.name = name
+        self.host = host
+        self.port = port
+        self.transport = transport
+        self.credentials = credentials
+        self.cipher = cipher
+        self.useTLS = useTLS
+        self.serverName = serverName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        host = try container.decode(String.self, forKey: .host)
+        port = try container.decode(Int.self, forKey: .port)
+        transport = try container.decodeIfPresent(String.self, forKey: .transport) ?? "direct"
+        credentials = try container.decodeIfPresent(String.self, forKey: .credentials)
+        cipher = try container.decodeIfPresent(String.self, forKey: .cipher)
+        useTLS = try container.decodeIfPresent(Bool.self, forKey: .useTLS) ?? false
+        serverName = try container.decodeIfPresent(String.self, forKey: .serverName)
+    }
 }
 
 struct TunnelConfiguration: Codable, Hashable, Sendable {

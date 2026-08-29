@@ -11,6 +11,7 @@ Waypo/               iOS/iPadOS app entry
 WaypoMac/            macOS app entry
 Tunnel/              Packet tunnel provider extension code (shared by both platforms)
 Harness/             macOS CLI that drives the engine in-process against a utun device
+Core/                Engine library build script and packaged library output (not committed)
 ```
 
 ## Before building
@@ -35,6 +36,17 @@ utun creation needs root, hence `sudo`. Options:
 - `--default-route` — point the default route at the device. Off by default; with the placeholder engine not forwarding packets this blackholes your traffic until the process exits.
 
 With the harness running, traffic sent to the utun address (e.g. `ping 198.18.0.2`) reaches the engine and is logged.
+
+## Engine library
+
+The tunnel extension ships with a placeholder engine. The packaged engine library is built from a separate source repository and is not committed here:
+
+```sh
+cd Core
+CORE_REPO_URL=<engine source repository> ./build-library.sh
+```
+
+This clones the source, builds `Libbox.xcframework` for all Apple platforms, and installs it in `Core/`. Then drag the framework into both tunnel targets in Xcode to activate the real engine (`Tunnel/LibboxEngine.swift` is compiled in only when the framework is present, so the project always builds either way).
 
 ## Requirements
 
