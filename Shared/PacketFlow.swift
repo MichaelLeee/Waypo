@@ -20,11 +20,13 @@ final class NetworkExtensionPacketFlow: PacketFlow, @unchecked Sendable {
         AsyncStream { continuation in
             Task {
                 while true {
-                    let packets: [NEPacket] = await withCheckedContinuation { result in
-                        self.flow.readPackets { result.resume(returning: $0) }
+                    let (packets, _) : ([Data], [NSNumber]) = await withCheckedContinuation { result in
+                        self.flow.readPackets { data, protocols in
+                            result.resume(returning: (data, protocols))
+                        }
                     }
                     for packet in packets {
-                        continuation.yield(packet.data)
+                        continuation.yield(packet)
                     }
                 }
             }
@@ -32,11 +34,12 @@ final class NetworkExtensionPacketFlow: PacketFlow, @unchecked Sendable {
     }
 
     func writePackets(_ packets: [Data]) async {
-        flow.writePackets(packets.map { NEPacket(data: $0, protocolFamily: Self.protocolFamily(of: $0)) })
+        let protocols = packets.map { NSNumber(value: Self.protocolFamily(of: $0)) }
+        flow.writePackets(packets, withProtocols: protocols)
     }
 
-    static func protocolFamily(of packet: Data) -> UInt32 {
-        guard let first = packet.first else { return UInt32(AF_INET) }
-        return (first >> 4) == 6 ? UInt32(AF_INET6) : UInt32(AF_INET)
+    static func protocolFamily(of packet: Data) -> sa_family_t {
+        guard let first = packet.first else { return sa_family_t(AF_INET) }
+        return (first >> 4) == 6 ? sa_family_t(AF_INET6) : sa_family_t(AF_INET)
     }
 }
