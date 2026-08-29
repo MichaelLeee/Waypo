@@ -5,18 +5,36 @@ A personal study project for Apple-platform networking: a SwiftUI multiplatform 
 ## Layout
 
 ```
-Waypo.xcodeproj/     4 targets: Waypo (iOS/iPadOS), WaypoMac, WaypoTunnel (iOS), WaypoTunnelMac
+Waypo.xcodeproj/     5 targets: Waypo (iOS/iPadOS), WaypoMac, WaypoTunnel (iOS), WaypoTunnelMac, WaypoHarness
 Shared/              Code compiled into all targets: config model, store, controller, engine boundary
 Waypo/               iOS/iPadOS app entry
 WaypoMac/            macOS app entry
 Tunnel/              Packet tunnel provider extension code (shared by both platforms)
+Harness/             macOS CLI that drives the engine in-process against a utun device
 ```
 
 ## Before building
 
-1. Open `Waypo.xcodeproj` in Xcode 26+ and set your Development Team on all four targets.
+1. Open `Waypo.xcodeproj` in Xcode 26+ and set your Development Team on the app and tunnel targets.
 2. Bundle IDs (`org.waypo.ios`, `org.waypo.mac`, `org.waypo.ios.tunnel`, `org.waypo.mac.tunnel`) and the App Group (`group.org.waypo`) are placeholders — change them everywhere if you need different ones.
-3. Signing note: the Network Extensions capability cannot be provisioned with a free personal team — a paid Apple Developer Program membership is required for the tunnel targets. Simulator builds never load tunnel extensions regardless; UI and store logic can still be developed in the simulator.
+3. Debug builds carry no entitlements file, so they build and run with a free personal team — enough for all UI, store, and controller work in the simulator or on device. Release builds keep the entitlements (Network Extensions capability + App Group) and require a paid Apple Developer Program membership to sign. Simulator builds never load tunnel extensions regardless.
+
+## Engine development without NetworkExtension
+
+The `WaypoHarness` target is a macOS command-line tool for developing the engine/data path without any signing or NetworkExtension involvement. It creates a real `utun` device, configures it, and feeds packets through the same `CoreEngine` + `PacketFlow` boundary the tunnel extension uses.
+
+```sh
+xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug build
+sudo $(xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/WaypoHarness
+```
+
+utun creation needs root, hence `sudo`. Options:
+
+- `--unit N` — utun unit number (default 9 → `utun9`)
+- `--address A.B.C.D` — local IPv4 address on the device (default `198.18.0.1`)
+- `--default-route` — point the default route at the device. Off by default; with the placeholder engine not forwarding packets this blackholes your traffic until the process exits.
+
+With the harness running, traffic sent to the utun address (e.g. `ping 198.18.0.2`) reaches the engine and is logged.
 
 ## Requirements
 

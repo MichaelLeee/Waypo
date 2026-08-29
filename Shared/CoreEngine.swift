@@ -1,5 +1,4 @@
 import Foundation
-import NetworkExtension
 
 /// The narrow boundary between the app and the tunnel engine.
 /// Engine implementations plug in behind this protocol and its C-ABI
@@ -17,7 +16,7 @@ enum CoreEvent: Sendable {
 }
 
 protocol CoreEngine: Sendable {
-    func start(configuration: TunnelConfiguration, packetFlow: NEPacketTunnelFlow) async throws
+    func start(configuration: TunnelConfiguration, packetFlow: any PacketFlow) async throws
     func stop() async
     func events() -> AsyncStream<CoreEvent>
     func stats() -> AsyncStream<CoreStats>
@@ -26,7 +25,7 @@ protocol CoreEngine: Sendable {
 /// Placeholder engine so the scaffold builds and runs end-to-end.
 /// The tunnel comes up with routes and DNS but the data path is not implemented yet.
 struct NullCoreEngine: CoreEngine {
-    func start(configuration: TunnelConfiguration, packetFlow: NEPacketTunnelFlow) async throws {}
+    func start(configuration: TunnelConfiguration, packetFlow: any PacketFlow) async throws {}
     func stop() async {}
 
     func events() -> AsyncStream<CoreEvent> {

@@ -58,6 +58,7 @@
 		AA0000000000000000000009 /* WaypoMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WaypoMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000000000000000000000A /* WaypoTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WaypoTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000000000000000000000B /* WaypoTunnelMac.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WaypoTunnelMac.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA000000000000000000000C /* WaypoHarness */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WaypoHarness; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +80,11 @@
 		AA0000000000000000000007 /* Tunnel */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tunnel;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000026 /* Harness */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Harness;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -112,6 +118,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000000000000000000029 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -122,6 +135,7 @@
 				AA0000000000000000000005 /* Waypo */,
 				AA0000000000000000000006 /* WaypoMac */,
 				AA0000000000000000000007 /* Tunnel */,
+				AA0000000000000000000026 /* Harness */,
 				AA0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -133,6 +147,7 @@
 				AA0000000000000000000009 /* WaypoMac.app */,
 				AA000000000000000000000A /* WaypoTunnel.appex */,
 				AA000000000000000000000B /* WaypoTunnelMac.appex */,
+				AA000000000000000000000C /* WaypoHarness */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -228,6 +243,26 @@
 			productReference = AA000000000000000000000B /* WaypoTunnelMac.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		AA0000000000000000000027 /* WaypoHarness */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0000000000000000000035;
+			buildPhases = (
+				AA0000000000000000000028 /* Sources */,
+				AA0000000000000000000029 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AA0000000000000000000026 /* Harness */,
+				AA0000000000000000000004 /* Shared */,
+			);
+			name = WaypoHarness;
+			productName = WaypoHarness;
+			productReference = AA000000000000000000000C /* WaypoHarness */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -248,6 +283,9 @@
 						CreatedOnToolsVersion = 26.0;
 					};
 					AA0000000000000000000013 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					AA0000000000000000000027 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -272,6 +310,7 @@
 				AA0000000000000000000011 /* WaypoMac */,
 				AA0000000000000000000012 /* WaypoTunnel */,
 				AA0000000000000000000013 /* WaypoTunnelMac */,
+				AA0000000000000000000027 /* WaypoHarness */,
 			);
 		};
 /* End PBXProject section */
@@ -330,6 +369,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AA000000000000000000001F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000000000000000000028 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -418,7 +464,6 @@
 		AA0000000000000000000042 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = Waypo/Waypo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -466,7 +511,6 @@
 		AA0000000000000000000044 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = WaypoMac/WaypoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -510,7 +554,6 @@
 		AA0000000000000000000046 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = Tunnel/Tunnel-iOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -564,7 +607,6 @@
 		AA0000000000000000000048 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = Tunnel/TunnelMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -615,6 +657,26 @@
 			};
 			name = Release;
 		};
+		AA000000000000000000004A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AA000000000000000000004B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -659,6 +721,13 @@
 			buildConfigurations = (
 				AA0000000000000000000048 /* Debug */,
 				AA0000000000000000000049 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		AA0000000000000000000035 /* Build configuration list for PBXNativeTarget "WaypoHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000000000000000000004A /* Debug */,
+				AA000000000000000000004B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

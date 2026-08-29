@@ -7,6 +7,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         let config = TunnelStore().loadConfiguration()
         let remoteAddress = config.servers.first?.host ?? "198.18.0.1"
+        let logger = self.logger
+        let packetFlow = self.packetFlow
         logger.info("starting tunnel, remote=\(remoteAddress, privacy: .public)")
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: remoteAddress)
@@ -22,15 +24,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         settings.dnsSettings = NEDNSSettings(servers: config.dnsAddresses)
 
-        setTunnelNetworkSettings(settings) { [weak self] error in
+        setTunnelNetworkSettings(settings) { error in
             if let error {
-                self?.logger.error("network settings failed: \(error.localizedDescription, privacy: .public)")
+                logger.error("network settings failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(error)
                 return
             }
-            // Core hookup lands here: engine.start(configuration:packetFlow:)
-            self?.logger.info("tunnel up (NullCore — no traffic forwarded yet)")
-            completionHandler(nil)
+            let flow = NetworkExtensionPacketFlow(flow: packetFlow)
+            let engine = NullCoreEngine()
+            Task {
+                do {
+                    try await engine.start(configuration: config, packetFlow: flow)
+                    logger.info("tunnel up (engine running)")
+                    completionHandler(nil)
+                } catch {
+                    completionHandler(error)
+                }
+            }
         }
     }
 
