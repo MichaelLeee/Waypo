@@ -49,8 +49,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler()
     }
 
-    override func handleAppMessage(_ messageData: Data, completionHandler: @escaping (Data?) -> Void) {
-        completionHandler(nil)
+    override func handleAppMessage(_ messageData: Data, completionHandler: (@Sendable (Data?) -> Void)?) {
+        completionHandler?(nil)
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
