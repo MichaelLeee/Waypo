@@ -52,14 +52,26 @@ jobs:
       - name: Build tunnel extensions with engine
         run: |
           set -e
-          xcodebuild -project Waypo.xcodeproj -target WaypoTunnelMac -configuration Debug build CODE_SIGNING_ALLOWED=NO 'FRAMEWORK_SEARCH_PATHS=$(SRCROOT)/Core'
-          xcodebuild -project Waypo.xcodeproj -target WaypoTunnel -configuration Debug -sdk iphonesimulator build CODE_SIGNING_ALLOWED=NO 'FRAMEWORK_SEARCH_PATHS=$(SRCROOT)/Core'
+          SLICE=$(find Core/Libbox.xcframework -maxdepth 1 -type d -name 'macos*' -exec basename {} \; | sort | head -1)
+          echo "macOS slice: $SLICE"
+          xcodebuild -project Waypo.xcodeproj -target WaypoTunnelMac -configuration Debug build CODE_SIGNING_ALLOWED=NO \
+            "FRAMEWORK_SEARCH_PATHS=\$(SRCROOT)/Core/Libbox.xcframework/$SLICE" \
+            "OTHER_LDFLAGS=-F\$(SRCROOT)/Core/Libbox.xcframework/$SLICE -framework Libbox"
+          SIM_SLICE=$(find Core/Libbox.xcframework -maxdepth 1 -type d -name 'ios*simulator*' -exec basename {} \; | sort | head -1)
+          echo "iOS simulator slice: $SIM_SLICE"
+          xcodebuild -project Waypo.xcodeproj -target WaypoTunnel -configuration Debug -sdk iphonesimulator build CODE_SIGNING_ALLOWED=NO \
+            "FRAMEWORK_SEARCH_PATHS=\$(SRCROOT)/Core/Libbox.xcframework/$SIM_SLICE" \
+            "OTHER_LDFLAGS=-F\$(SRCROOT)/Core/Libbox.xcframework/$SIM_SLICE -framework Libbox"
 
       - name: Data-path self-test
         run: |
           set -e
-          xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug build CODE_SIGNING_ALLOWED=NO 'FRAMEWORK_SEARCH_PATHS=$(SRCROOT)/Core'
-          HARNESS_DIR=$(xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')
+          SLICE=$(find Core/Libbox.xcframework -maxdepth 1 -type d -name 'macos*' -exec basename {} \; | sort | head -1)
+          echo "macOS slice: $SLICE"
+          xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            "FRAMEWORK_SEARCH_PATHS=\$(SRCROOT)/Core/Libbox.xcframework/$SLICE" \
+            "OTHER_LDFLAGS=-F\$(SRCROOT)/Core/Libbox.xcframework/$SLICE -framework Libbox"
+          HARNESS_DIR=$(xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug -showBuildSettings ARCHS=arm64 ONLY_ACTIVE_ARCH=YES 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')
           sudo "$HARNESS_DIR/WaypoHarness" --self-test
 
       - name: Upload engine library
