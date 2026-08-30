@@ -25,6 +25,9 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     let utun = try UtunInterface(unit: unit)
     print("created \(utun.name)")
     try run("/sbin/ifconfig", [utun.name, address, peerAddress, "up"])
+    // The engine's tun inbound declares an IPv6 address alongside the IPv4
+    // one; both must exist on the device or its stack fails to bind.
+    try run("/sbin/ifconfig", [utun.name, "inet6", "fdfe:dcba:9876::1", "prefixlen", "126", "up"])
 
     let echoServer = try UDPEchoServer()
     print("echo server listening on 0.0.0.0:\(echoServer.port)")
