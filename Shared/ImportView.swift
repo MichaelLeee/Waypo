@@ -7,12 +7,33 @@ struct ImportView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var urlString = ""
+    @State private var isFetching = false
     @State private var importError: String?
     @State private var showingFileImporter = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack {
+                        TextField("https://example.com/list.txt", text: $urlString)
+                            .textFieldStyle(.plain)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button("Fetch") {
+                            Task { await fetchURL() }
+                        }
+                        .disabled(urlString.trimmingCharacters(in: .whitespaces).isEmpty || isFetching)
+                        if isFetching {
+                            ProgressView()
+                        }
+                    }
+                } header: {
+                    Text("Download from URL")
+                }
+
                 Section {
                     TextEditor(text: $text)
                         .frame(minHeight: 160)
@@ -58,6 +79,30 @@ struct ImportView: View {
             importError = "No valid entries were found."
         } else {
             dismiss()
+        }
+    }
+
+    private func fetchURL() async {
+        guard let url = URL(string: urlString.trimmingCharacters(in: .whitespaces)) else {
+            importError = "That is not a valid URL."
+            return
+        }
+        isFetching = true
+        defer { isFetching = false }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                importError = "The server returned an error response."
+                return
+            }
+            guard let fetched = String(data: data, encoding: .utf8) else {
+                importError = "The response is not UTF-8 text."
+                return
+            }
+            text = fetched
+            importError = nil
+        } catch {
+            importError = error.localizedDescription
         }
     }
 
