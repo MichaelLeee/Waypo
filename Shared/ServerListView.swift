@@ -7,6 +7,7 @@ struct ServerListView: View {
 
     @State private var editingServer: TunnelServer?
     @State private var showingNewServer = false
+    @State private var showingImport = false
 
     var body: some View {
         Group {
@@ -21,6 +22,9 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingNewServer) {
             ServerEditorView(controller: controller, mode: .new)
+        }
+        .sheet(isPresented: $showingImport) {
+            ImportView(controller: controller)
         }
         .overlay {
             if controller.configuration.servers.isEmpty {
@@ -62,7 +66,11 @@ struct ServerListView: View {
     @ViewBuilder
     private var rows: some View {
         ForEach(controller.configuration.servers, id: \.id) { server in
-            ServerRow(server: server, isActive: controller.isActiveServer(server.id))
+            ServerRow(
+                server: server,
+                isActive: controller.isActiveServer(server.id),
+                latency: controller.latencies[server.id]
+            )
 #if os(macOS)
                 .tag(server.id)
                 .contextMenu {
@@ -91,6 +99,11 @@ struct ServerListView: View {
 
     @ViewBuilder
     private func rowMenu(_ server: TunnelServer) -> some View {
+        Button {
+            Task { await controller.checkLatency(for: server.id) }
+        } label: {
+            Label("Test Latency", systemImage: "antenna.radiowaves.left.and.right")
+        }
         Button("Set as Active") {
             controller.setActiveServer(server.id)
         }
@@ -111,6 +124,17 @@ struct ServerListView: View {
                 Label("Add Server", systemImage: "plus")
             }
             Button {
+                showingImport = true
+            } label: {
+                Label("Import", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                Task { await controller.checkAllLatencies() }
+            } label: {
+                Label("Test Latency", systemImage: "antenna.radiowaves.left.and.right")
+            }
+            .disabled(controller.isTestingLatency)
+            Button {
                 if let id = selection,
                    let server = controller.configuration.servers.first(where: { $0.id == id }) {
                     editingServer = server
@@ -126,6 +150,7 @@ struct ServerListView: View {
 struct ServerRow: View {
     var server: TunnelServer
     var isActive: Bool
+    var latency: Double?
 
     var body: some View {
         HStack {
@@ -136,11 +161,22 @@ struct ServerRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if let latency {
+                Text(String(format: "%.0f ms", latency))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(latencyColor(latency))
+            }
             if isActive {
                 Text("In Use")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.green)
             }
         }
+    }
+
+    private func latencyColor(_ latency: Double) -> Color {
+        if latency < 150 { return .green }
+        if latency < 400 { return .orange }
+        return .red
     }
 }

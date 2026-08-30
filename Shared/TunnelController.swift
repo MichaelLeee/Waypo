@@ -8,6 +8,8 @@ import Observation
 final class TunnelController {
     private(set) var status: NEVPNStatus = .invalid
     private(set) var lastError: String?
+    private(set) var latencies: [TunnelServer.ID: Double] = [:]
+    private(set) var isTestingLatency = false
     var configuration: TunnelConfiguration = .default
 
     private let store = TunnelStore()
@@ -76,6 +78,7 @@ final class TunnelController {
 
     func deleteServer(_ id: TunnelServer.ID) {
         configuration.servers.removeAll { $0.id == id }
+        latencies.removeValue(forKey: id)
         persist()
     }
 
@@ -86,6 +89,50 @@ final class TunnelController {
         let server = configuration.servers.remove(at: index)
         configuration.servers.insert(server, at: 0)
         persist()
+    }
+
+    // MARK: - Import
+
+    /// Adds servers parsed from share-link text, skipping duplicates.
+    /// Returns the number of servers actually added.
+    @discardableResult
+    func importServers(fromText text: String) -> Int {
+        let parsed = ServerImport.parse(text)
+        let existing = Set(configuration.servers.map { "\($0.host):\($0.port):\($0.transport)" })
+        let fresh = parsed.filter { !existing.contains("\($0.host):\($0.port):\($0.transport)") }
+        guard !fresh.isEmpty else { return 0 }
+        configuration.servers.append(contentsOf: fresh)
+        persist()
+        return fresh.count
+    }
+
+    // MARK: - Latency
+
+    func checkLatency(for id: TunnelServer.ID) async {
+        guard let server = configuration.servers.first(where: { $0.id == id }) else { return }
+        latencies[id] = await ServerLatency.measure(host: server.host, port: server.port)
+    }
+
+    func checkAllLatencies() async {
+        isTestingLatency = true
+        defer { isTestingLatency = false }
+        let servers = configuration.servers
+        let results = await withTaskGroup(of: (TunnelServer.ID, Double?).self) { group in
+            for server in servers {
+                group.addTask {
+                    let latency = await ServerLatency.measure(host: server.host, port: server.port)
+                    return (server.id, latency)
+                }
+            }
+            var collected: [TunnelServer.ID: Double] = [:]
+            for await (id, latency) in group {
+                if let latency {
+                    collected[id] = latency
+                }
+            }
+            return collected
+        }
+        latencies = results
     }
 
     private func persist() {
