@@ -85,8 +85,10 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     let iterations = 5
     var payloads: [Data] = []
     for index in 0..<iterations {
-        let random = (0..<32).map { _ in UInt8.random(in: 0...255) }
-        payloads.append(Data("waypo-self-test-\(index)-".utf8) + Data(random))
+        // Leading random bytes keep the payload from parsing as a DNS header
+        // (any fixed prefix can land on bytes that the sniffer accepts).
+        let marker = Data("waypo-self-test-\(index)-".utf8)
+        payloads.append(Data((0..<12).map { _ in UInt8.random(in: 0...255) }) + marker)
     }
 
     echoServer.arm(expected: iterations)

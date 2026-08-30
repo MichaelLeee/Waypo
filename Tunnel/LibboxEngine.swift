@@ -132,13 +132,21 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             outbounds = [outbound, ["type": "direct", "tag": "direct-out"]]
         }
 
+        // DNS hijacking only makes sense in production, where the device DNS
+        // servers sit behind the tunnel. The harness self-test sends UDP
+        // payloads the sniffer can misread as DNS queries; routing them into
+        // the resolver would swallow them instead of forwarding.
+        let routeRules: [[String: Any]] = autoRoute
+            ? [["protocol": "dns", "action": "hijack-dns"]]
+            : []
+
         let json: [String: Any] = [
             "log": ["level": autoRoute ? "info" : "debug", "timestamp": true],
             "dns": ["servers": dnsServers],
             "inbounds": [tun],
             "outbounds": outbounds,
             "route": [
-                "rules": [["protocol": "dns", "action": "hijack-dns"]],
+                "rules": routeRules,
                 "final": "out",
                 // Harness mode must keep the dial on the plain routing table
                 // (local delivery to the loopback alias); binding the outbound
