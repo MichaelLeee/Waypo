@@ -22,10 +22,10 @@ final class UtunInterface {
         var info = ctl_info()
         withUnsafeMutableBytes(of: &info.ctl_name) { buffer in
             _ = buffer.baseAddress.map {
-                strncpy($0.assumingMemoryBound(to: CChar.self), "com.apple.net.utun_control", MAX_KCTL_NAME)
+                strncpy($0.assumingMemoryBound(to: CChar.self), "com.apple.net.utun_control", Int(MAX_KCTL_NAME))
             }
         }
-        guard ioctl(fd, CTLIOCGINFO, &info) == 0 else {
+        guard ioctl(fd, Self.ctlInfoGetInfo, &info) == 0 else {
             throw UtunSetupError(message: "CTLIOCGINFO failed: \(lastErrorText())")
         }
 
@@ -45,7 +45,7 @@ final class UtunInterface {
             throw UtunSetupError(message: "utun connect failed (unit \(unit) already in use?): \(lastErrorText())")
         }
 
-        var nameBuffer = [CChar](repeating: 0, count: IFNAMSIZ)
+        var nameBuffer = [CChar](repeating: 0, count: Int(IFNAMSIZ))
         var nameLength: socklen_t = socklen_t(IFNAMSIZ)
         let utunOptIfName: Int32 = 2 // UTUN_OPT_IFNAME, not exposed by the Darwin module
         guard getsockopt(fd, SYSPROTO_CONTROL, utunOptIfName, &nameBuffer, &nameLength) == 0 else {
@@ -57,4 +57,10 @@ final class UtunInterface {
     private func lastErrorText() -> String {
         String(cString: strerror(errno))
     }
+
+    // _IOWR('N', 3, struct ctl_info); some SDK variants do not export CTLIOCGINFO
+    private static let ctlInfoGetInfo: UInt = {
+        let size = MemoryLayout<ctl_info>.size
+        return 0xC000_0000 | (UInt(size) << 16) | (UInt(0x4E) << 8) | 3
+    }()
 }
