@@ -348,7 +348,7 @@ final class UDPTestSocket: @unchecked Sendable {
         let sent = withUnsafePointer(to: &destination) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
                 payload.withUnsafeBytes { buffer in
-                    sendto(fd, buffer.baseAddress, buffer.count, 0, sockaddrPointer,
+                    sendto(fileDescriptor, buffer.baseAddress, buffer.count, 0, sockaddrPointer,
                            socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
