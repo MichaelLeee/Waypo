@@ -143,7 +143,18 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         // the resolver would swallow them instead of forwarding.
         let routeRules: [[String: Any]] = autoRoute
             ? [["protocol": "dns", "action": "hijack-dns"]]
-            : []
+            : [[
+                "inbound": ["tun-in"],
+                "action": "route",
+                "outbound": "out",
+                // Harness mode: test datagrams are addressed to the device
+                // peer, whose kernel host route is what hands them to the
+                // engine, but the echo server lives on the host loopback.
+                // Rewriting the dial target to loopback keeps the forward
+                // path on-host; the engine rewrites the reply source back to
+                // the original destination itself.
+                "override_address": "127.0.0.1",
+            ]]
 
         var route: [String: Any] = [
             "rules": routeRules,

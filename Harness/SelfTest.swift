@@ -32,18 +32,14 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     // The engine's tun inbound declares an IPv6 address alongside the IPv4
     // one; both must exist on the device or its stack fails to bind.
     try run("/sbin/ifconfig", [utun.name, "inet6", "fdfe:dcba:9876::1", "prefixlen", "126", "up"])
-    // The engine dials the peer address to reach the on-host echo server
-    // (with its dialer bound to lo0, see the engine configuration); aliasing
-    // it onto the loopback device makes the host own it so that dial
-    // local-delivers instead of following the peer route back into the
-    // device. The address must also sit outside the utun subnet — the engine
-    // refuses to dial any address inside the device's own prefixes.
-    try run("/sbin/ifconfig", ["lo0", "alias", peerAddress, "255.255.255.255"])
-    defer {
-        try? run("/sbin/ifconfig", ["lo0", "-alias", peerAddress])
-    }
+    // The peer address must sit outside the utun subnet — the engine refuses
+    // to dial any address inside the device's own prefixes — and must NOT be
+    // owned by any other interface: an alias elsewhere steals the peer host
+    // route and datagrams pinned to the device then vanish. The engine dials
+    // the on-host echo server at loopback via a route-rule address override
+    // (see the engine configuration) instead of the peer address.
 
-    let echoServer = try UDPEchoServer(bindAddress: peerAddress)
+    let echoServer = try UDPEchoServer(bindAddress: "127.0.0.1")
     print("echo server listening on \(peerAddress):\(echoServer.port)")
 
     let flow = UtunPacketFlow(fileDescriptor: utun.fileDescriptor)
@@ -313,8 +309,9 @@ final class UDPTestSocket: @unchecked Sendable {
         }
         port = boundAddress.sin_port.bigEndian
 
-        // Without the interface pin the kernel would deliver datagrams for the
-        // loopback alias directly instead of handing them to the engine.
+        // Without the interface pin a datagram to an address the host owns
+        // would be delivered locally instead of handed to the engine; the
+        // peer route alone is not trusted to win that race.
         let interfaceIndex = if_nametoindex(interfaceName)
         guard interfaceIndex > 0 else {
             Darwin.close(fileDescriptor)
