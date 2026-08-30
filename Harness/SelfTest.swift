@@ -432,24 +432,25 @@ final class TCPEchoServer: @unchecked Sendable {
         let counter = self.counter
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler { [weak self] in
+            guard let self else { return }
             var client = sockaddr_in()
             var clientLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let clientFD = withUnsafeMutablePointer(to: &client) { pointer in
+            let acceptedFD = withUnsafeMutablePointer(to: &client) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                     accept(fd, $0, &clientLength)
                 }
             }
-            guard clientFD >= 0 else { return }
-            self?.clientFD = clientFD
-            let clientSource = DispatchSource.makeReadSource(fileDescriptor: clientFD, queue: queue)
+            guard acceptedFD >= 0 else { return }
+            self.clientFD = acceptedFD
+            let clientSource = DispatchSource.makeReadSource(fileDescriptor: acceptedFD, queue: queue)
             clientSource.setEventHandler {
                 var buffer = [UInt8](repeating: 0, count: 65536)
-                let count = read(clientFD, &buffer, buffer.count)
+                let count = read(acceptedFD, &buffer, buffer.count)
                 guard count > 0 else { return }
                 var sent = 0
                 while sent < count {
                     let n = buffer.withUnsafeBytes { raw in
-                        Darwin.send(clientFD, raw.baseAddress!.advanced(by: sent), count - sent, 0)
+                        Darwin.send(acceptedFD, raw.baseAddress!.advanced(by: sent), count - sent, 0)
                     }
                     guard n > 0 else { return }
                     sent += n
@@ -457,7 +458,7 @@ final class TCPEchoServer: @unchecked Sendable {
                 counter.add(count)
             }
             clientSource.resume()
-            self?.clientSource = clientSource
+            self.clientSource = clientSource
         }
         source.resume()
         acceptSource = source
