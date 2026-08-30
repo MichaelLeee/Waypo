@@ -59,6 +59,8 @@ CORE_REPO_URL=<engine source repository> ./build-library.sh
 
 This clones the source, builds `Libbox.xcframework` for all Apple platforms, and installs it in `Core/`. Then drag the framework into both tunnel targets in Xcode to activate the real engine (`Tunnel/LibboxEngine.swift` is compiled in only when the framework is present, so the project always builds either way).
 
+CI runs the same build in a second job: it needs the `CORE_REPO_URL` repository secret set (Settings → Secrets and variables → Actions) and uploads the built framework as an artifact, so you can download `Libbox.xcframework` from a run instead of building it locally.
+
 ## Requirements
 
 - Xcode 26+, Swift 6, iOS 26 / iPadOS 26 / macOS 26 deployment targets.
