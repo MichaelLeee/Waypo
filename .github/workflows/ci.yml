@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Build macOS targets
+        run: |
+          set -e
+          for target in WaypoMac WaypoHarness WaypoTunnelMac; do
+            xcodebuild -project Waypo.xcodeproj -target "$target" -configuration Debug build CODE_SIGNING_ALLOWED=NO
+          done
+
+      - name: Build iOS target
+        run: xcodebuild -project Waypo.xcodeproj -target Waypo -configuration Debug -sdk iphonesimulator build CODE_SIGNING_ALLOWED=NO
+
+      - name: Run tests
+        run: xcodebuild -project Waypo.xcodeproj -scheme WaypoTests -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
