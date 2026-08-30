@@ -179,8 +179,14 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     print("dns metrics: queries=\(dnsQueries.count) replies=\(dnsReplies.count)")
     if dnsQueries.count != 1 {
         failures.append("dns responder received \(dnsQueries.count) of 1 queries from the engine")
-    } else if dnsQueries[0].range(of: Data("self-test.internal".utf8)) == nil {
-        failures.append("engine dns query does not carry the test name")
+    } else {
+        // The engine may re-encode the question with mixed-case letters
+        // (0x20 randomization); names are case-insensitive on the wire.
+        let receivedName = String(decoding: dnsQueries[0], as: UTF8.self).lowercased()
+        print("dns query bytes: \(dnsQueries[0].map { String(format: "%02x", $0) }.joined())")
+        if !receivedName.contains("self-test.internal") {
+            failures.append("engine dns query does not carry the test name")
+        }
     }
     if let dnsReply = dnsReplies.first {
         if dnsReply.prefix(2) != Data([0x1A, 0x2B]) {
