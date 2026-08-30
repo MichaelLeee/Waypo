@@ -253,6 +253,9 @@ final class UDPEchoServer: @unchecked Sendable {
         guard fileDescriptor >= 0 else {
             throw SelfTestFailure(description: "socket() failed: \(String(cString: strerror(errno)))")
         }
+        // Closures below must capture this local, not self: instance properties
+        // stay uninitialized until the end of init.
+        let fd = fileDescriptor
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
@@ -260,7 +263,7 @@ final class UDPEchoServer: @unchecked Sendable {
         address.sin_addr = in_addr(s_addr: INADDR_ANY)
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(fileDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0 else {
@@ -272,7 +275,7 @@ final class UDPEchoServer: @unchecked Sendable {
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
         let named = withUnsafeMutablePointer(to: &boundAddress) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                getsockname(fileDescriptor, $0, &length)
+                getsockname(fd, $0, &length)
             }
         }
         guard named == 0 else {
@@ -283,8 +286,7 @@ final class UDPEchoServer: @unchecked Sendable {
         port = boundAddress.sin_port.bigEndian
 
         let log = self.log
-        let fd = fileDescriptor
-        let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler {
             var buffer = [UInt8](repeating: 0, count: 65536)
             var sender = sockaddr_in()
@@ -334,6 +336,9 @@ final class UDPReceiveSocket: @unchecked Sendable {
         guard fileDescriptor >= 0 else {
             throw SelfTestFailure(description: "socket() failed: \(String(cString: strerror(errno)))")
         }
+        // Closures below must capture this local, not self: instance properties
+        // stay uninitialized until the end of init.
+        let fd = fileDescriptor
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
@@ -344,7 +349,7 @@ final class UDPReceiveSocket: @unchecked Sendable {
         }
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(fileDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0 else {
@@ -356,7 +361,7 @@ final class UDPReceiveSocket: @unchecked Sendable {
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
         let named = withUnsafeMutablePointer(to: &boundAddress) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                getsockname(fileDescriptor, $0, &length)
+                getsockname(fd, $0, &length)
             }
         }
         guard named == 0 else {
@@ -367,8 +372,7 @@ final class UDPReceiveSocket: @unchecked Sendable {
         port = boundAddress.sin_port.bigEndian
 
         let log = self.log
-        let fd = fileDescriptor
-        let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler {
             var buffer = [UInt8](repeating: 0, count: 65536)
             let count = recvfrom(fd, &buffer, buffer.count, 0, nil, nil)
