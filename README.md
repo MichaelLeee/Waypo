@@ -38,6 +38,8 @@ utun creation needs root, hence `sudo`. Options:
 
 With the harness running, traffic sent to the utun address (e.g. `ping 198.18.0.2`) reaches the engine and is logged.
 
+`sudo WaypoHarness --self-test` runs a one-shot data-path check instead: it injects checksummed UDP packets through the utun device, drives them through the engine, and verifies the round trip with deterministic metrics (payload equality, no loss, byte counters balance). It exits 0 on success. CI runs this on every push once the engine library is built.
+
 ## Testing
 
 The unit test suite runs on macOS without any host app or signing:

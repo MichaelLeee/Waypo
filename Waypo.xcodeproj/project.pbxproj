@@ -77,6 +77,13 @@
 			);
 			target = AA0000000000000000000013 /* WaypoTunnelMac */;
 		};
+		AA000000000000000000005D /* Exceptions for "Tunnel" folder in "WaypoHarness" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA0000000000000000000027 /* WaypoHarness */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -100,6 +107,7 @@
 			exceptions = (
 				AA0000000000000000000052 /* Exceptions for "Tunnel" folder in "WaypoTunnel" target */,
 				AA0000000000000000000053 /* Exceptions for "Tunnel" folder in "WaypoTunnelMac" target */,
+				AA000000000000000000005D /* Exceptions for "Tunnel" folder in "WaypoHarness" target */,
 			);
 			path = Tunnel;
 			sourceTree = "<group>";
@@ -292,6 +300,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				AA0000000000000000000026 /* Harness */,
+				AA0000000000000000000007 /* Tunnel */,
 				AA0000000000000000000004 /* Shared */,
 			);
 			name = WaypoHarness;

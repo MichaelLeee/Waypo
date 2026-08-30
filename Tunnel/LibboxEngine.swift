@@ -11,14 +11,26 @@ import Libbox
 /// the tun file descriptor; it is handed over by the platform interface in
 /// `openTun`, so the PacketFlow argument of `start` is intentionally unused.
 final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
-    private let tunnel: NEPacketTunnelProvider
+    private let tunnel: NEPacketTunnelProvider?
     private let platformInterface: WaypoPlatformInterface
     private let logger = Logger(subsystem: "org.waypo", category: "engine")
     private var commandServer: LibboxCommandServer?
+    /// Harness mode injects packets through an fd it already owns, so the
+    /// engine must not manage routes on the host.
+    private let autoRoute: Bool
 
     init(tunnel: NEPacketTunnelProvider) {
         self.tunnel = tunnel
+        self.autoRoute = true
         self.platformInterface = WaypoPlatformInterface(tunnel: tunnel)
+    }
+
+    /// Harness construction: the tun file descriptor already exists (utun),
+    /// no NetworkExtension settings are applied.
+    init(tunFileDescriptor: Int32) {
+        self.tunnel = nil
+        self.autoRoute = false
+        self.platformInterface = WaypoPlatformInterface(tunFileDescriptor: tunFileDescriptor)
     }
 
     func start(configuration: TunnelConfiguration, packetFlow: any PacketFlow) async throws {
@@ -83,8 +95,8 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             "tag": "tun-in",
             "address": ["198.18.0.1/30", "fdfe:dcba:9876::1/126"],
             "mtu": configuration.mtu,
-            "auto_route": true,
-            "strict_route": true,
+            "auto_route": autoRoute,
+            "strict_route": autoRoute,
             "stack": "system",
         ]
 
@@ -129,10 +141,19 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
 /// Applies network settings on behalf of the engine and hands over the tun fd.
 final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, LibboxCommandServerHandlerProtocol {
     private static let logger = Logger(subsystem: "org.waypo", category: "engine-platform")
-    private let tunnel: NEPacketTunnelProvider
+    private let tunnel: NEPacketTunnelProvider?
+    /// Harness mode: openTun returns this fd directly instead of driving the
+    /// NetworkExtension settings handshake.
+    private let tunFileDescriptor: Int32?
 
     init(tunnel: NEPacketTunnelProvider) {
         self.tunnel = tunnel
+        self.tunFileDescriptor = nil
+    }
+
+    init(tunFileDescriptor: Int32) {
+        self.tunnel = nil
+        self.tunFileDescriptor = tunFileDescriptor
     }
 
     private var logger: Logger { Self.logger }
@@ -140,6 +161,13 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
     // MARK: - Tun
 
     func openTun(_ options: LibboxTunOptionsProtocol?, ret0_: UnsafeMutablePointer<Int32>?) throws {
+        if let tunFileDescriptor {
+            guard let ret0_ else {
+                throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "nil return pointer"])
+            }
+            ret0_.pointee = tunFileDescriptor
+            return
+        }
         guard let options else {
             throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "nil tun options"])
         }
@@ -250,7 +278,7 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
             try await tunnelForCall.setTunnelNetworkSettings(settingsForCall)
         }
 
-        if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
+        if let tunFd = tunnel?.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
             ret0_.pointee = tunFd
             return
         }
@@ -369,7 +397,7 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
 
     // MARK: - Service and diagnostics
 
-    func underNetworkExtension() -> Bool { true }
+    func underNetworkExtension() -> Bool { tunFileDescriptor == nil }
 
     func includeAllNetworks() -> Bool { false }
 
@@ -388,7 +416,7 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
     func clearDNSCache() {}
 
     func serviceStop() throws {
-        tunnel.cancelTunnelWithError(nil)
+        tunnel?.cancelTunnelWithError(nil)
     }
 
     func serviceReload() throws {}
