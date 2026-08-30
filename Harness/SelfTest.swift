@@ -28,29 +28,55 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     // The engine's tun inbound declares an IPv6 address alongside the IPv4
     // one; both must exist on the device or its stack fails to bind.
     try run("/sbin/ifconfig", [utun.name, "inet6", "fdfe:dcba:9876::1", "prefixlen", "126", "up"])
+    // The engine dials the peer address to reach the on-host echo server;
+    // aliasing it onto the loopback device makes the host own it so the dial
+    // loopbacks instead of leaving through the physical interface.
+    try run("/sbin/ifconfig", ["lo0", "alias", peerAddress, "255.255.255.255"])
+    defer {
+        try? run("/sbin/ifconfig", ["lo0", "-alias", peerAddress])
+    }
 
     let echoServer = try UDPEchoServer()
     print("echo server listening on 0.0.0.0:\(echoServer.port)")
 
-    guard let destination = SelfTestHelpers.hostDestination() else {
-        throw SelfTestFailure(description: "no routable host IPv4 address found")
-    }
-    print("test destination \(destination):\(echoServer.port)")
-
-    let replySocket = try UDPReceiveSocket(bindAddress: address)
-    print("reply socket bound to \(address):\(replySocket.port)")
-
-    let configuration = TunnelConfiguration(
-        servers: [TunnelServer(name: "self-test", host: destination,
-                               port: Int(echoServer.port), transport: "direct")],
-        mtu: 1500,
-        dnsAddresses: ["127.0.0.1"]
-    )
     let flow = UtunPacketFlow(fileDescriptor: utun.fileDescriptor)
+    let testSocket = try UDPTestSocket(bindAddress: address, interfaceName: utun.name)
+    print("test socket bound to \(address):\(testSocket.port), pinned to \(utun.name)")
 
     #if !canImport(Libbox)
     throw SelfTestFailure(description: "engine library is not built into this harness")
     #else
+    // Probe, before the engine exists: a datagram pinned to the utun device
+    // must surface on its file descriptor. Writing to the descriptor would
+    // only inject inbound traffic the engine never sees, so the kernel output
+    // path is the only honest way to hand packets to the engine.
+    echoServer.arm(expected: 1)
+    let probePayload = Data("waypo-probe".utf8)
+    try testSocket.send(probePayload, to: peerAddress, port: echoServer.port)
+    let probePacket: Data? = await withTaskGroup(of: Data?.self) { group in
+        group.addTask { await flow.readPackets().first { _ in true } }
+        group.addTask {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            return nil
+        }
+        let first = await group.next()!
+        group.cancelAll()
+        return first
+    }
+    let probeHijacks = echoServer.waitForReceipts(timeout: 0.5)
+    guard let probePacket else {
+        throw SelfTestFailure(description: probeHijacks.isEmpty
+            ? "probe datagram never reached the \(utun.name) file descriptor"
+            : "kernel delivered the probe locally instead of through \(utun.name)")
+    }
+    print("probe datagram (\(probePacket.count) bytes) reached \(utun.name)")
+
+    let configuration = TunnelConfiguration(
+        servers: [TunnelServer(name: "self-test", host: peerAddress,
+                               port: Int(echoServer.port), transport: "direct")],
+        mtu: 1500,
+        dnsAddresses: ["127.0.0.1"]
+    )
     let engine = LibboxCoreEngine(tunFileDescriptor: utun.fileDescriptor)
     try await engine.start(configuration: configuration, packetFlow: flow)
     print("engine started")
@@ -64,24 +90,20 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     }
 
     echoServer.arm(expected: iterations)
-    replySocket.arm(expected: iterations)
+    testSocket.arm(expected: iterations)
     var sentBytes = 0
     for payload in payloads {
-        let packet = try SelfTestHelpers.ipv4UdpPacket(
-            sourceAddress: address, sourcePort: replySocket.port,
-            destinationAddress: destination, destinationPort: echoServer.port,
-            payload: payload)
-        await flow.writePackets([packet])
+        try testSocket.send(payload, to: peerAddress, port: echoServer.port)
         sentBytes += payload.count
     }
-    print("injected \(iterations) packets (\(sentBytes) payload bytes) into \(utun.name)")
+    print("sent \(iterations) datagrams (\(sentBytes) payload bytes) toward \(peerAddress) via \(utun.name)")
 
     let receipts = echoServer.waitForReceipts(timeout: 20)
-    let replies = replySocket.waitForDatagrams(timeout: 20)
+    let replies = testSocket.waitForDatagrams(timeout: 20)
 
     await engine.stop()
     echoServer.close()
-    replySocket.close()
+    testSocket.close()
 
     var failures: [String] = []
     if receipts.count != iterations {
@@ -99,7 +121,7 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     }
     let receivedBytes = receipts.reduce(0) { $0 + $1.count }
     let replyBytes = replies.reduce(0) { $0 + $1.count }
-    print("metrics: injected=\(iterations)/\(sentBytes)B echoed=\(receipts.count)/\(receivedBytes)B replies=\(replies.count)/\(replyBytes)B")
+    print("metrics: sent=\(iterations)/\(sentBytes)B echoed=\(receipts.count)/\(receivedBytes)B replies=\(replies.count)/\(replyBytes)B")
     if receivedBytes != sentBytes {
         failures.append("byte counters do not balance: sent \(sentBytes), echoed \(receivedBytes)")
     }
@@ -110,103 +132,6 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
         throw SelfTestFailure(description: failures.joined(separator: "; "))
     }
     #endif
-}
-
-enum SelfTestHelpers {
-    /// Best non-loopback IPv4 address of the host, preferring the primary
-    /// Ethernet/Wi-Fi interface, so the engine dials a real on-host address.
-    static func hostDestination() -> String? {
-        var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else { return nil }
-        defer { freeifaddrs(ifaddrPtr) }
-
-        var candidates: [(name: String, address: String)] = []
-        var pointer: UnsafeMutablePointer<ifaddrs>? = first
-        while let current = pointer {
-            defer { pointer = current.pointee.ifa_next }
-            guard let sockaddrPtr = current.pointee.ifa_addr,
-                  sockaddrPtr.pointee.sa_family == sa_family_t(AF_INET) else { continue }
-            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            let result = getnameinfo(sockaddrPtr, socklen_t(sockaddrPtr.pointee.sa_len),
-                                     &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
-            guard result == 0 else { continue }
-            let name = String(cString: current.pointee.ifa_name)
-            let address = String(cString: host)
-            guard !address.hasPrefix("127."), !name.hasPrefix("utun"), !name.hasPrefix("lo"),
-                  !name.hasPrefix("bridge"), !name.hasPrefix("awdl"), !name.hasPrefix("llw") else { continue }
-            candidates.append((name, address))
-        }
-        return candidates.first(where: { $0.name.hasPrefix("en") })?.address ?? candidates.first?.address
-    }
-
-    static func internetChecksum(_ bytes: [UInt8]) -> UInt16 {
-        var sum: UInt32 = 0
-        var index = 0
-        while index + 1 < bytes.count {
-            sum += UInt32(bytes[index]) << 8 | UInt32(bytes[index + 1])
-            index += 2
-        }
-        if index < bytes.count {
-            sum += UInt32(bytes[index]) << 8
-        }
-        while sum >> 16 != 0 {
-            sum = (sum & 0xFFFF) + (sum >> 16)
-        }
-        return UInt16(~sum & 0xFFFF)
-    }
-
-    /// Builds a checksummed IPv4 + UDP datagram.
-    static func ipv4UdpPacket(sourceAddress: String, sourcePort: UInt16,
-                              destinationAddress: String, destinationPort: UInt16,
-                              payload: Data) throws -> Data {
-        var source = in_addr()
-        var destination = in_addr()
-        guard inet_pton(AF_INET, sourceAddress, &source) == 1 else {
-            throw SelfTestFailure(description: "bad source address \(sourceAddress)")
-        }
-        guard inet_pton(AF_INET, destinationAddress, &destination) == 1 else {
-            throw SelfTestFailure(description: "bad destination address \(destinationAddress)")
-        }
-
-        let udpLength = 8 + payload.count
-        var udp = [UInt8](repeating: 0, count: udpLength)
-        udp[0] = UInt8(sourcePort >> 8 & 0xFF)
-        udp[1] = UInt8(sourcePort & 0xFF)
-        udp[2] = UInt8(destinationPort >> 8 & 0xFF)
-        udp[3] = UInt8(destinationPort & 0xFF)
-        udp[4] = UInt8(udpLength >> 8 & 0xFF)
-        udp[5] = UInt8(udpLength & 0xFF)
-        payload.copyBytes(to: &udp[8], count: payload.count)
-
-        var pseudo: [UInt8] = []
-        withUnsafeBytes(of: source.s_addr) { pseudo.append(contentsOf: $0) }
-        withUnsafeBytes(of: destination.s_addr) { pseudo.append(contentsOf: $0) }
-        pseudo.append(0)
-        pseudo.append(17)
-        pseudo.append(UInt8(udpLength >> 8 & 0xFF))
-        pseudo.append(UInt8(udpLength & 0xFF))
-        let checksum = internetChecksum(pseudo + udp)
-        udp[6] = UInt8(checksum >> 8)
-        udp[7] = UInt8(checksum & 0xFF)
-
-        let totalLength = 20 + udpLength
-        var ip = [UInt8](repeating: 0, count: 20)
-        ip[0] = 0x45
-        ip[2] = UInt8(totalLength >> 8 & 0xFF)
-        ip[3] = UInt8(totalLength & 0xFF)
-        ip[4] = 0x12
-        ip[5] = 0x34
-        ip[6] = 0x40
-        ip[8] = 64
-        ip[9] = 17
-        withUnsafeBytes(of: source.s_addr) { for offset in 0..<4 { ip[12 + offset] = $0[offset] } }
-        withUnsafeBytes(of: destination.s_addr) { for offset in 0..<4 { ip[16 + offset] = $0[offset] } }
-        let ipChecksum = internetChecksum(ip)
-        ip[10] = UInt8(ipChecksum >> 8)
-        ip[11] = UInt8(ipChecksum & 0xFF)
-
-        return Data(ip + udp)
-    }
 }
 
 /// Lock-protected datagram collector shared between a socket class and the
@@ -325,16 +250,18 @@ final class UDPEchoServer: @unchecked Sendable {
     }
 }
 
-/// UDP socket bound to the tun address; the engine's responses to the injected
-/// packets are delivered here by the kernel, proving the full return path.
-final class UDPReceiveSocket: @unchecked Sendable {
+/// UDP socket pinned to the utun device. Output goes through the device's
+/// kernel route, so datagrams surface on its file descriptor where the engine
+/// reads them; the engine's replies come back to the same socket via local
+/// delivery, proving the full return path.
+final class UDPTestSocket: @unchecked Sendable {
     private let fileDescriptor: Int32
-    private let queue = DispatchQueue(label: "org.waypo.harness.reply")
+    private let queue = DispatchQueue(label: "org.waypo.harness.test")
     private let log = SocketLog()
     private var readSource: DispatchSourceRead?
     private(set) var port: UInt16
 
-    init(bindAddress: String) throws {
+    init(bindAddress: String, interfaceName: String) throws {
         fileDescriptor = socket(AF_INET, SOCK_DGRAM, 0)
         guard fileDescriptor >= 0 else {
             throw SelfTestFailure(description: "socket() failed: \(String(cString: strerror(errno)))")
@@ -374,6 +301,22 @@ final class UDPReceiveSocket: @unchecked Sendable {
         }
         port = boundAddress.sin_port.bigEndian
 
+        // Without the interface pin the kernel would deliver datagrams for the
+        // loopback alias directly instead of handing them to the engine.
+        let interfaceIndex = if_nametoindex(interfaceName)
+        guard interfaceIndex > 0 else {
+            Darwin.close(fileDescriptor)
+            throw SelfTestFailure(description: "unknown interface \(interfaceName)")
+        }
+        var pinnedIndex = interfaceIndex
+        let pinned = setsockopt(fd, IPPROTO_IP, IP_BOUND_IF, &pinnedIndex,
+                                socklen_t(MemoryLayout<UInt32>.size))
+        guard pinned == 0 else {
+            let message = String(cString: strerror(errno))
+            Darwin.close(fileDescriptor)
+            throw SelfTestFailure(description: "IP_BOUND_IF(\(interfaceName)) failed: \(message)")
+        }
+
         let log = self.log
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler {
@@ -392,6 +335,27 @@ final class UDPReceiveSocket: @unchecked Sendable {
 
     func waitForDatagrams(timeout: TimeInterval) -> [Data] {
         log.wait(timeout: timeout)
+    }
+
+    func send(_ payload: Data, to host: String, port: UInt16) throws {
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_port = port.bigEndian
+        guard inet_pton(AF_INET, host, &destination.sin_addr) == 1 else {
+            throw SelfTestFailure(description: "bad destination address \(host)")
+        }
+        let sent = withUnsafePointer(to: &destination) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                payload.withUnsafeBytes { buffer in
+                    sendto(fd, buffer.baseAddress, buffer.count, 0, sockaddrPointer,
+                           socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        }
+        guard sent == payload.count else {
+            throw SelfTestFailure(description: "sendto(\(host):\(port)) failed: \(String(cString: strerror(errno)))")
+        }
     }
 
     func close() {

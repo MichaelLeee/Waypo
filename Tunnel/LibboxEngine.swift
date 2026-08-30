@@ -140,7 +140,10 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             "route": [
                 "rules": [["protocol": "dns", "action": "hijack-dns"]],
                 "final": "out",
-                "auto_detect_interface": true,
+                // Harness mode must keep the dial on the plain routing table
+                // (local delivery to the loopback alias); binding the outbound
+                // to the physical interface would send it off-host.
+                "auto_detect_interface": autoRoute,
             ],
         ]
 
