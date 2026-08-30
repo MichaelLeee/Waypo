@@ -52,6 +52,9 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         var serverError: NSError?
         let server = LibboxNewCommandServer(platformInterface, platformInterface, &serverError)
         if let serverError { throw serverError }
+        guard let server else {
+            throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "command server creation failed"])
+        }
         commandServer = server
 
         try server.startOrReloadService(configContent, options: LibboxOverrideOptions())
@@ -272,7 +275,9 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
         // The engine calls openTun synchronously on its own thread; the provider
         // and settings are used exactly once here and not touched concurrently,
         // which is what the unsafe annotation attests to.
-        nonisolated(unsafe) let tunnelForCall = self.tunnel
+        guard let tunnelForCall = self.tunnel else {
+            throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "no tunnel provider"])
+        }
         nonisolated(unsafe) let settingsForCall = settings
         try runBlocking {
             try await tunnelForCall.setTunnelNetworkSettings(settingsForCall)
