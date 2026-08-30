@@ -103,32 +103,40 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             "stack": "system",
         ]
 
-        var outbound: [String: Any] = [
-            "type": server.transport,
-            "tag": "out",
-            "server": server.host,
-            "server_port": server.port,
-        ]
-        switch server.transport {
-        case "trojan":
-            outbound["password"] = server.credentials ?? ""
-        case "vless":
-            outbound["uuid"] = server.credentials ?? ""
-        case "shadowsocks":
-            outbound["password"] = server.credentials ?? ""
-            outbound["method"] = server.cipher ?? "aes-128-gcm"
-        default:
-            break
-        }
-        if server.useTLS {
-            outbound["tls"] = ["enabled": true, "server_name": server.serverName ?? server.host]
+        // A direct transport has no remote endpoint; it becomes the final
+        // outbound itself, which is what the harness self-test uses.
+        let outbounds: [[String: Any]]
+        if server.transport == "direct" {
+            outbounds = [["type": "direct", "tag": "out"]]
+        } else {
+            var outbound: [String: Any] = [
+                "type": server.transport,
+                "tag": "out",
+                "server": server.host,
+                "server_port": server.port,
+            ]
+            switch server.transport {
+            case "trojan":
+                outbound["password"] = server.credentials ?? ""
+            case "vless":
+                outbound["uuid"] = server.credentials ?? ""
+            case "shadowsocks":
+                outbound["password"] = server.credentials ?? ""
+                outbound["method"] = server.cipher ?? "aes-128-gcm"
+            default:
+                break
+            }
+            if server.useTLS {
+                outbound["tls"] = ["enabled": true, "server_name": server.serverName ?? server.host]
+            }
+            outbounds = [outbound, ["type": "direct", "tag": "direct-out"]]
         }
 
         let json: [String: Any] = [
             "log": ["level": "info", "timestamp": true],
             "dns": ["servers": dnsServers],
             "inbounds": [tun],
-            "outbounds": [outbound, ["type": "direct", "tag": "direct-out"]],
+            "outbounds": outbounds,
             "route": [
                 "rules": [["protocol": "dns", "action": "hijack-dns"]],
                 "final": "out",
