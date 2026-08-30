@@ -19,9 +19,11 @@ struct ImportView: View {
                     HStack {
                         TextField("https://example.com/list.txt", text: $urlString)
                             .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+#if os(iOS)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+#endif
                         Button("Fetch") {
                             Task { await fetchURL() }
                         }
