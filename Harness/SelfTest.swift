@@ -32,15 +32,17 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     // The engine's tun inbound declares an IPv6 address alongside the IPv4
     // one; both must exist on the device or its stack fails to bind.
     try run("/sbin/ifconfig", [utun.name, "inet6", "fdfe:dcba:9876::1", "prefixlen", "126", "up"])
-    // The peer address must sit outside the utun subnet — the engine refuses
-    // to dial any address inside the device's own prefixes — and must NOT be
-    // owned by any other interface: an alias elsewhere steals the peer host
-    // route and datagrams pinned to the device then vanish. The engine dials
-    // the on-host echo server at loopback via a route-rule address override
-    // (see the engine configuration) instead of the peer address.
+    if let routeLookup = try? run("/usr/sbin/route", ["-n", "get", peerAddress]) {
+        print("route to \(peerAddress): \(routeLookup.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+    // The engine dials the on-host echo server at loopback via a route-rule
+    // address override (see the engine configuration), so the peer address is
+    // never dialed and may sit inside the device's own subnet — but it must
+    // NOT be owned by any other interface: an alias elsewhere steals the peer
+    // host route and datagrams pinned to the device then vanish.
 
     let echoServer = try UDPEchoServer(bindAddress: "127.0.0.1")
-    print("echo server listening on \(peerAddress):\(echoServer.port)")
+    print("echo server listening on 127.0.0.1:\(echoServer.port)")
 
     let flow = UtunPacketFlow(fileDescriptor: utun.fileDescriptor)
     let testSocket = try UDPTestSocket(bindAddress: address, interfaceName: utun.name)
@@ -56,10 +58,18 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     echoServer.arm(expected: 1)
     let probePayload = Data("waypo-probe".utf8)
     try testSocket.send(probePayload, to: peerAddress, port: echoServer.port)
+    // Scan until the probe payload shows up: the kernel emits its own IPv6
+    // neighbor-discovery traffic on the device right after configuration, and
+    // that can arrive before the probe does.
     let probePacket: Data? = await withTaskGroup(of: Data?.self) { group in
-        group.addTask { await flow.readPackets().first { _ in true } }
         group.addTask {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            for await packet in flow.readPackets() where packet.range(of: probePayload) != nil {
+                return packet
+            }
+            return nil
+        }
+        group.addTask {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
             return nil
         }
         let first = await group.next()!
@@ -67,7 +77,7 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
         return first
     }
     let probeHijacks = echoServer.waitForReceipts(timeout: 0.5)
-    guard let probePacket, probePacket.range(of: probePayload) != nil else {
+    guard let probePacket else {
         throw SelfTestFailure(description: probeHijacks.isEmpty
             ? "probe datagram never reached the \(utun.name) file descriptor"
             : "kernel delivered the probe locally instead of through \(utun.name)")

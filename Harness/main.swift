@@ -16,13 +16,13 @@ Usage: sudo WaypoHarness [--self-test] [--unit N] [--address A.B.C.D] [--default
 
 var unit: Int32 = 9
 var address = "198.18.0.1"
-// The peer address is the test destination. It must stay outside the utun
-// subnet — the engine refuses to dial any address inside the device's own
-// prefixes (routing-loop protection) — while still routing through the
-// device, which the kernel does automatically for a point-to-point peer.
-// The engine reaches the on-host echo server at loopback via a route-rule
-// address override; see SelfTest and the engine configuration.
-let peerAddress = "198.19.0.1"
+// The peer address is the test destination. A point-to-point peer gets a
+// kernel host route through the device, which is what pushes interface-pinned
+// datagrams onto the file descriptor. The engine dials the on-host echo
+// server at loopback via a route-rule address override, so the peer address
+// is never dialed and may live inside the device's own subnet; see SelfTest
+// and the engine configuration.
+let peerAddress = "198.18.0.2"
 var defaultRoute = false
 var selfTest = false
 
