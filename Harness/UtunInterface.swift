@@ -15,7 +15,7 @@ final class UtunInterface {
     init(unit: Int32) throws {
         let fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL)
         guard fd >= 0 else {
-            throw UtunSetupError(message: "socket(PF_SYSTEM) failed: \(lastErrorText())")
+            throw UtunSetupError(message: "socket(PF_SYSTEM) failed: \(Self.lastErrorText())")
         }
         self.fileDescriptor = fd
 
@@ -26,7 +26,7 @@ final class UtunInterface {
             }
         }
         guard ioctl(fd, Self.ctlInfoGetInfo, &info) == 0 else {
-            throw UtunSetupError(message: "CTLIOCGINFO failed: \(lastErrorText())")
+            throw UtunSetupError(message: "CTLIOCGINFO failed: \(Self.lastErrorText())")
         }
 
         var controlAddress = sockaddr_ctl()
@@ -42,19 +42,19 @@ final class UtunInterface {
             }
         }
         guard connected == 0 else {
-            throw UtunSetupError(message: "utun connect failed (unit \(unit) already in use?): \(lastErrorText())")
+            throw UtunSetupError(message: "utun connect failed (unit \(unit) already in use?): \(Self.lastErrorText())")
         }
 
         var nameBuffer = [CChar](repeating: 0, count: Int(IFNAMSIZ))
         var nameLength: socklen_t = socklen_t(IFNAMSIZ)
         let utunOptIfName: Int32 = 2 // UTUN_OPT_IFNAME, not exposed by the Darwin module
         guard getsockopt(fd, SYSPROTO_CONTROL, utunOptIfName, &nameBuffer, &nameLength) == 0 else {
-            throw UtunSetupError(message: "getsockopt(UTUN_OPT_IFNAME) failed: \(lastErrorText())")
+            throw UtunSetupError(message: "getsockopt(UTUN_OPT_IFNAME) failed: \(Self.lastErrorText())")
         }
         name = String(cString: nameBuffer)
     }
 
-    private func lastErrorText() -> String {
+    private static func lastErrorText() -> String {
         String(cString: strerror(errno))
     }
 
