@@ -40,6 +40,14 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String,
     defer {
         try? run("/sbin/ifconfig", ["lo0", "-alias", echoAddress])
     }
+    // Local delivery to the alias would swallow datagrams even from the
+    // interface-pinned test socket, so a scoped host route makes the kernel
+    // push them through the utun device, where only the engine reads them.
+    // The engine's own dial (unpinned) still follows the global alias route.
+    try run("/sbin/route", ["-n", "add", "-host", echoAddress, "-ifscope", utun.name, peerAddress])
+    defer {
+        try? run("/sbin/route", ["-n", "delete", "-host", echoAddress, "-ifscope", utun.name, peerAddress])
+    }
 
     let echoServer = try UDPEchoServer(bindAddress: echoAddress)
     print("echo server listening on \(echoAddress):\(echoServer.port)")
@@ -69,7 +77,7 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String,
         return first
     }
     let probeHijacks = echoServer.waitForReceipts(timeout: 0.5)
-    guard let probePacket else {
+    guard let probePacket, probePacket.range(of: probePayload) != nil else {
         throw SelfTestFailure(description: probeHijacks.isEmpty
             ? "probe datagram never reached the \(utun.name) file descriptor"
             : "kernel delivered the probe locally instead of through \(utun.name)")
