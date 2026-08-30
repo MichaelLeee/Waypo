@@ -42,7 +42,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         setup.workingPath = cacheDir + "/work"
         setup.tempPath = NSTemporaryDirectory()
         setup.logMaxLines = 500
-        setup.debug = false
+        setup.debug = !autoRoute
         setup.appVersion = "0.1.0"
         setup.appMarketingVersion = "0.1.0"
         var setupError: NSError?
@@ -133,7 +133,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         }
 
         let json: [String: Any] = [
-            "log": ["level": "info", "timestamp": true],
+            "log": ["level": autoRoute ? "info" : "debug", "timestamp": true],
             "dns": ["servers": dnsServers],
             "inbounds": [tun],
             "outbounds": outbounds,
@@ -419,11 +419,20 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
 
     func writeLog(_ message: String?) {
         guard let message else { return }
+        // Harness mode has no unified log viewer; print so CI captures output.
+        if tunFileDescriptor != nil {
+            FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
+            return
+        }
         logger.notice("\(message, privacy: .public)")
     }
 
     func writeDebugMessage(_ message: String?) {
         guard let message else { return }
+        if tunFileDescriptor != nil {
+            FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
+            return
+        }
         logger.debug("\(message, privacy: .public)")
     }
 
