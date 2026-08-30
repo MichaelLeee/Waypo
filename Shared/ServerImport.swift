@@ -12,10 +12,10 @@ enum ServerImport {
     static func parseLine(_ line: String) -> TunnelServer? {
         guard let url = URL(string: line), let scheme = url.scheme?.lowercased() else { return nil }
         switch scheme {
-        case "trojan": parseTrojan(url)
-        case "vless": parseVLESS(url)
-        case "ss": parseShadowsocks(url, rawLine: line)
-        default: nil
+        case "trojan": return parseTrojan(url)
+        case "vless": return parseVLESS(url)
+        case "ss": return parseShadowsocks(url, rawLine: line)
+        default: return nil
         }
     }
 
