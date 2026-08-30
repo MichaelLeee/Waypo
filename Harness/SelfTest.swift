@@ -206,15 +206,46 @@ enum SelfTestHelpers {
     }
 }
 
+/// Lock-protected datagram collector shared between a socket class and the
+/// DispatchSource handler it installs. Kept separate from the owning class so
+/// init-time handlers capture this instead of `self`, which Swift forbids
+/// before all stored properties are initialized.
+private final class SocketLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [Data] = []
+    private var expected = 0
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func reset(expected: Int) {
+        lock.lock()
+        items = []
+        self.expected = expected
+        lock.unlock()
+    }
+
+    func append(_ data: Data) {
+        lock.lock()
+        items.append(data)
+        let done = expected > 0 && items.count >= expected
+        lock.unlock()
+        if done { semaphore.signal() }
+    }
+
+    func wait(timeout: TimeInterval) -> [Data] {
+        _ = semaphore.wait(timeout: .now() + timeout)
+        lock.lock()
+        defer { lock.unlock() }
+        return items
+    }
+}
+
 /// UDP echo server for the self-test. Receives datagrams, echoes each back to
 /// its sender, and records receipts for verification.
 final class UDPEchoServer: @unchecked Sendable {
     private let fileDescriptor: Int32
     private let queue = DispatchQueue(label: "org.waypo.harness.echo")
-    private let semaphore = DispatchSemaphore(value: 0)
+    private let log = SocketLog()
     private var readSource: DispatchSourceRead?
-    private var receipts: [Data] = []
-    private var expected = 0
     private(set) var port: UInt16
 
     init() throws {
@@ -251,43 +282,36 @@ final class UDPEchoServer: @unchecked Sendable {
         }
         port = boundAddress.sin_port.bigEndian
 
+        let log = self.log
+        let fd = fileDescriptor
         let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
+        source.setEventHandler {
             var buffer = [UInt8](repeating: 0, count: 65536)
             var sender = sockaddr_in()
             var senderLength = socklen_t(MemoryLayout<sockaddr_in>.size)
             let count = withUnsafeMutablePointer(to: &sender) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    recvfrom(self.fileDescriptor, &buffer, buffer.count, 0, $0, &senderLength)
+                    recvfrom(fd, &buffer, buffer.count, 0, $0, &senderLength)
                 }
             }
             guard count > 0 else { return }
             _ = withUnsafePointer(to: &sender) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    sendto(self.fileDescriptor, &buffer, count, 0, $0, senderLength)
+                    sendto(fd, &buffer, count, 0, $0, senderLength)
                 }
             }
-            // Handler runs on `queue`; no further sync needed here.
-            self.receipts.append(Data(buffer.prefix(count)))
-            if self.receipts.count >= self.expected && self.expected > 0 {
-                self.semaphore.signal()
-            }
+            log.append(Data(buffer.prefix(count)))
         }
         source.resume()
         readSource = source
     }
 
     func arm(expected: Int) {
-        queue.sync {
-            self.expected = expected
-            self.receipts = []
-        }
+        log.reset(expected: expected)
     }
 
     func waitForReceipts(timeout: TimeInterval) -> [Data] {
-        _ = semaphore.wait(timeout: .now() + timeout)
-        return queue.sync { receipts }
+        log.wait(timeout: timeout)
     }
 
     func close() {
@@ -301,10 +325,8 @@ final class UDPEchoServer: @unchecked Sendable {
 final class UDPReceiveSocket: @unchecked Sendable {
     private let fileDescriptor: Int32
     private let queue = DispatchQueue(label: "org.waypo.harness.reply")
-    private let semaphore = DispatchSemaphore(value: 0)
+    private let log = SocketLog()
     private var readSource: DispatchSourceRead?
-    private var datagrams: [Data] = []
-    private var expected = 0
     private(set) var port: UInt16
 
     init(bindAddress: String) throws {
@@ -344,32 +366,25 @@ final class UDPReceiveSocket: @unchecked Sendable {
         }
         port = boundAddress.sin_port.bigEndian
 
+        let log = self.log
+        let fd = fileDescriptor
         let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
+        source.setEventHandler {
             var buffer = [UInt8](repeating: 0, count: 65536)
-            let count = recvfrom(self.fileDescriptor, &buffer, buffer.count, 0, nil, nil)
+            let count = recvfrom(fd, &buffer, buffer.count, 0, nil, nil)
             guard count > 0 else { return }
-            // Handler runs on `queue`; no further sync needed here.
-            self.datagrams.append(Data(buffer.prefix(count)))
-            if self.datagrams.count >= self.expected && self.expected > 0 {
-                self.semaphore.signal()
-            }
+            log.append(Data(buffer.prefix(count)))
         }
         source.resume()
         readSource = source
     }
 
     func arm(expected: Int) {
-        queue.sync {
-            self.expected = expected
-            self.datagrams = []
-        }
+        log.reset(expected: expected)
     }
 
     func waitForDatagrams(timeout: TimeInterval) -> [Data] {
-        _ = semaphore.wait(timeout: .now() + timeout)
-        return queue.sync { datagrams }
+        log.wait(timeout: timeout)
     }
 
     func close() {
