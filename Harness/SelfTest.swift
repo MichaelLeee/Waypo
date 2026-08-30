@@ -41,8 +41,8 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String,
         try? run("/sbin/ifconfig", ["lo0", "-alias", echoAddress])
     }
 
-    let echoServer = try UDPEchoServer()
-    print("echo server listening on 0.0.0.0:\(echoServer.port)")
+    let echoServer = try UDPEchoServer(bindAddress: echoAddress)
+    print("echo server listening on \(echoAddress):\(echoServer.port)")
 
     let flow = UtunPacketFlow(fileDescriptor: utun.fileDescriptor)
     let testSocket = try UDPTestSocket(bindAddress: address, interfaceName: utun.name)
@@ -183,7 +183,7 @@ final class UDPEchoServer: @unchecked Sendable {
     private var readSource: DispatchSourceRead?
     private(set) var port: UInt16
 
-    init() throws {
+    init(bindAddress: String) throws {
         fileDescriptor = socket(AF_INET, SOCK_DGRAM, 0)
         guard fileDescriptor >= 0 else {
             throw SelfTestFailure(description: "socket() failed: \(String(cString: strerror(errno)))")
@@ -195,7 +195,10 @@ final class UDPEchoServer: @unchecked Sendable {
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = 0
-        address.sin_addr = in_addr(s_addr: INADDR_ANY)
+        guard inet_pton(AF_INET, bindAddress, &address.sin_addr) == 1 else {
+            Darwin.close(fileDescriptor)
+            throw SelfTestFailure(description: "bad bind address \(bindAddress)")
+        }
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -204,7 +207,7 @@ final class UDPEchoServer: @unchecked Sendable {
         guard bound == 0 else {
             let message = String(cString: strerror(errno))
             Darwin.close(fileDescriptor)
-            throw SelfTestFailure(description: "bind() failed: \(message)")
+            throw SelfTestFailure(description: "bind(\(bindAddress)) failed: \(message)")
         }
         var boundAddress = sockaddr_in()
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
