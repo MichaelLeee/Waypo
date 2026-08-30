@@ -45,11 +45,10 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     )
     let flow = UtunPacketFlow(fileDescriptor: utun.fileDescriptor)
 
-    #if canImport(Libbox)
-    let engine = LibboxCoreEngine(tunFileDescriptor: utun.fileDescriptor)
-    #else
+    #if !canImport(Libbox)
     throw SelfTestFailure(description: "engine library is not built into this harness")
-    #endif
+    #else
+    let engine = LibboxCoreEngine(tunFileDescriptor: utun.fileDescriptor)
     try await engine.start(configuration: configuration, packetFlow: flow)
     print("engine started")
     try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -107,6 +106,7 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     if !failures.isEmpty {
         throw SelfTestFailure(description: failures.joined(separator: "; "))
     }
+    #endif
 }
 
 enum SelfTestHelpers {
@@ -234,7 +234,7 @@ final class UDPEchoServer: @unchecked Sendable {
         }
         guard bound == 0 else {
             let message = String(cString: strerror(errno))
-            close(fileDescriptor)
+            Darwin.close(fileDescriptor)
             throw SelfTestFailure(description: "bind() failed: \(message)")
         }
         var boundAddress = sockaddr_in()
@@ -246,7 +246,7 @@ final class UDPEchoServer: @unchecked Sendable {
         }
         guard named == 0 else {
             let message = String(cString: strerror(errno))
-            close(fileDescriptor)
+            Darwin.close(fileDescriptor)
             throw SelfTestFailure(description: "getsockname() failed: \(message)")
         }
         port = boundAddress.sin_port.bigEndian
@@ -292,7 +292,7 @@ final class UDPEchoServer: @unchecked Sendable {
 
     func close() {
         readSource?.cancel()
-        close(fileDescriptor)
+        Darwin.close(fileDescriptor)
     }
 }
 
@@ -317,7 +317,7 @@ final class UDPReceiveSocket: @unchecked Sendable {
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = 0
         guard inet_pton(AF_INET, bindAddress, &address.sin_addr) == 1 else {
-            close(fileDescriptor)
+            Darwin.close(fileDescriptor)
             throw SelfTestFailure(description: "bad bind address \(bindAddress)")
         }
         let bound = withUnsafePointer(to: &address) { pointer in
@@ -327,7 +327,7 @@ final class UDPReceiveSocket: @unchecked Sendable {
         }
         guard bound == 0 else {
             let message = String(cString: strerror(errno))
-            close(fileDescriptor)
+            Darwin.close(fileDescriptor)
             throw SelfTestFailure(description: "bind(\(bindAddress)) failed: \(message)")
         }
         var boundAddress = sockaddr_in()
@@ -339,7 +339,7 @@ final class UDPReceiveSocket: @unchecked Sendable {
         }
         guard named == 0 else {
             let message = String(cString: strerror(errno))
-            close(fileDescriptor)
+            Darwin.close(fileDescriptor)
             throw SelfTestFailure(description: "getsockname() failed: \(message)")
         }
         port = boundAddress.sin_port.bigEndian
@@ -374,6 +374,6 @@ final class UDPReceiveSocket: @unchecked Sendable {
 
     func close() {
         readSource?.cancel()
-        close(fileDescriptor)
+        Darwin.close(fileDescriptor)
     }
 }
