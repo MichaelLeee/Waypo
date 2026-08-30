@@ -382,6 +382,7 @@ final class TCPEchoServer: @unchecked Sendable {
     private let counter = ByteCounter()
     private var acceptSource: DispatchSourceRead?
     private var clientSource: DispatchSourceRead?
+    private var clientFD: Int32 = -1
     private(set) var port: UInt16 = 0
 
     init() throws {
@@ -535,7 +536,7 @@ final class TCPTestSocket: @unchecked Sendable {
         fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
         let connectResult = withUnsafePointer(to: &destination) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fileDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                Darwin.connect(fileDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         if connectResult != 0 {
