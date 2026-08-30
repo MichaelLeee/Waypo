@@ -16,10 +16,11 @@ Usage: sudo WaypoHarness [--self-test] [--unit N] [--address A.B.C.D] [--default
 
 var unit: Int32 = 9
 var address = "198.18.0.1"
-let peerAddress = "198.18.0.2"
-// Echo destination must stay outside the utun subnet: the engine refuses to
-// dial any address inside the device's own prefixes (routing-loop protection).
-let echoAddress = "198.19.0.1"
+// The peer address doubles as the echo destination. It must stay outside the
+// utun subnet — the engine refuses to dial any address inside the device's
+// own prefixes (routing-loop protection) — while still routing through the
+// device, which the kernel does automatically for a point-to-point peer.
+let peerAddress = "198.19.0.1"
 var defaultRoute = false
 var selfTest = false
 
@@ -80,8 +81,7 @@ func run(_ launchPath: String, _ args: [String]) throws -> String {
 
 do {
     if selfTest {
-        exit(await runSelfTest(unit: unit, address: address, peerAddress: peerAddress,
-                               echoAddress: echoAddress))
+        exit(await runSelfTest(unit: unit, address: address, peerAddress: peerAddress))
     }
 
     let utun = try UtunInterface(unit: unit)

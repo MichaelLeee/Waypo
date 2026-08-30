@@ -10,11 +10,9 @@ struct SelfTestFailure: Error, CustomStringConvertible {
 /// End-to-end data-path check: drives the real engine over a utun device and
 /// verifies a UDP round trip with deterministic metrics (payload equality,
 /// no loss, byte counters balance). Exits non-zero on any failure.
-func runSelfTest(unit: Int32, address: String, peerAddress: String,
-                 echoAddress: String) async -> Int32 {
+func runSelfTest(unit: Int32, address: String, peerAddress: String) async -> Int32 {
     do {
-        try await performSelfTest(unit: unit, address: address, peerAddress: peerAddress,
-                                  echoAddress: echoAddress)
+        try await performSelfTest(unit: unit, address: address, peerAddress: peerAddress)
         print("self-test PASSED")
         return 0
     } catch {
@@ -23,34 +21,30 @@ func runSelfTest(unit: Int32, address: String, peerAddress: String,
     }
 }
 
-private func performSelfTest(unit: Int32, address: String, peerAddress: String,
-                             echoAddress: String) async throws {
+private func performSelfTest(unit: Int32, address: String, peerAddress: String) async throws {
     let utun = try UtunInterface(unit: unit)
     print("created \(utun.name)")
+    // The peer address is the echo destination too: the kernel installs a
+    // host route through the device for a point-to-point peer, which is what
+    // pushes interface-pinned test datagrams onto the file descriptor where
+    // the engine reads them.
     try run("/sbin/ifconfig", [utun.name, address, peerAddress, "up"])
     // The engine's tun inbound declares an IPv6 address alongside the IPv4
     // one; both must exist on the device or its stack fails to bind.
     try run("/sbin/ifconfig", [utun.name, "inet6", "fdfe:dcba:9876::1", "prefixlen", "126", "up"])
-    // The engine dials the echo address to reach the on-host echo server;
-    // aliasing it onto the loopback device makes the host own it so the dial
-    // loopbacks instead of leaving through the physical interface. It must
-    // also sit outside the utun subnet — the engine refuses to dial any
-    // address inside the device's own prefixes (routing-loop protection).
-    try run("/sbin/ifconfig", ["lo0", "alias", echoAddress, "255.255.255.255"])
+    // The engine dials the peer address to reach the on-host echo server
+    // (with its dialer bound to lo0, see the engine configuration); aliasing
+    // it onto the loopback device makes the host own it so that dial
+    // local-delivers instead of following the peer route back into the
+    // device. The address must also sit outside the utun subnet — the engine
+    // refuses to dial any address inside the device's own prefixes.
+    try run("/sbin/ifconfig", ["lo0", "alias", peerAddress, "255.255.255.255"])
     defer {
-        try? run("/sbin/ifconfig", ["lo0", "-alias", echoAddress])
-    }
-    // Local delivery to the alias would swallow datagrams even from the
-    // interface-pinned test socket, so a scoped host route makes the kernel
-    // push them through the utun device, where only the engine reads them.
-    // The engine's own dial (unpinned) still follows the global alias route.
-    try run("/sbin/route", ["-n", "add", "-host", echoAddress, "-ifscope", utun.name, peerAddress])
-    defer {
-        try? run("/sbin/route", ["-n", "delete", "-host", echoAddress, "-ifscope", utun.name, peerAddress])
+        try? run("/sbin/ifconfig", ["lo0", "-alias", peerAddress])
     }
 
-    let echoServer = try UDPEchoServer(bindAddress: echoAddress)
-    print("echo server listening on \(echoAddress):\(echoServer.port)")
+    let echoServer = try UDPEchoServer(bindAddress: peerAddress)
+    print("echo server listening on \(peerAddress):\(echoServer.port)")
 
     let flow = UtunPacketFlow(fileDescriptor: utun.fileDescriptor)
     let testSocket = try UDPTestSocket(bindAddress: address, interfaceName: utun.name)
@@ -65,7 +59,7 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String,
     // path is the only honest way to hand packets to the engine.
     echoServer.arm(expected: 1)
     let probePayload = Data("waypo-probe".utf8)
-    try testSocket.send(probePayload, to: echoAddress, port: echoServer.port)
+    try testSocket.send(probePayload, to: peerAddress, port: echoServer.port)
     let probePacket: Data? = await withTaskGroup(of: Data?.self) { group in
         group.addTask { await flow.readPackets().first { _ in true } }
         group.addTask {
@@ -85,7 +79,7 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String,
     print("probe datagram (\(probePacket.count) bytes) reached \(utun.name)")
 
     let configuration = TunnelConfiguration(
-        servers: [TunnelServer(name: "self-test", host: echoAddress,
+        servers: [TunnelServer(name: "self-test", host: peerAddress,
                                port: Int(echoServer.port), transport: "direct")],
         mtu: 1500,
         dnsAddresses: ["127.0.0.1"]
@@ -108,10 +102,10 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String,
     testSocket.arm(expected: iterations)
     var sentBytes = 0
     for payload in payloads {
-        try testSocket.send(payload, to: echoAddress, port: echoServer.port)
+        try testSocket.send(payload, to: peerAddress, port: echoServer.port)
         sentBytes += payload.count
     }
-    print("sent \(iterations) datagrams (\(sentBytes) payload bytes) toward \(echoAddress) via \(utun.name)")
+    print("sent \(iterations) datagrams (\(sentBytes) payload bytes) toward \(peerAddress) via \(utun.name)")
 
     let receipts = echoServer.waitForReceipts(timeout: 20)
     let replies = testSocket.waitForDatagrams(timeout: 20)

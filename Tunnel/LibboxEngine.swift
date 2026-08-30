@@ -145,19 +145,25 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             ? [["protocol": "dns", "action": "hijack-dns"]]
             : []
 
+        var route: [String: Any] = [
+            "rules": routeRules,
+            "final": "out",
+            "auto_detect_interface": autoRoute,
+        ]
+        // Harness mode must reach the on-host echo server over the loopback
+        // device; an unpinned dial would follow the test socket's route back
+        // into the device we read from. Binding the dialer to lo0 makes local
+        // delivery deterministic.
+        if !autoRoute {
+            route["default_interface"] = "lo0"
+        }
+
         let json: [String: Any] = [
             "log": ["level": autoRoute ? "info" : "debug", "timestamp": true],
             "dns": ["servers": dnsServers],
             "inbounds": [tun],
             "outbounds": outbounds,
-            "route": [
-                "rules": routeRules,
-                "final": "out",
-                // Harness mode must keep the dial on the plain routing table
-                // (local delivery to the loopback alias); binding the outbound
-                // to the physical interface would send it off-host.
-                "auto_detect_interface": autoRoute,
-            ],
+            "route": route,
         ]
 
         let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
