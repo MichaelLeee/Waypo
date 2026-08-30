@@ -93,6 +93,10 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             ["type": "udp", "tag": "dns-\(index)", "server": address]
         }
 
+        // The engine's stack hijacks DNS by default, targeting the address
+        // right after the tun's own (198.18.0.2 for a 198.18.0.1/30 device) —
+        // which is exactly where harness test traffic goes. Harness mode
+        // therefore disables it; production keeps the default behavior.
         let tun: [String: Any] = [
             "type": "tun",
             "tag": "tun-in",
@@ -101,6 +105,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             "auto_route": autoRoute,
             "strict_route": autoRoute,
             "stack": "system",
+            "dns_mode": autoRoute ? "hijack" : "disabled",
         ]
 
         // A direct transport has no remote endpoint; it becomes the final
