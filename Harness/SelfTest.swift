@@ -214,7 +214,7 @@ private func makeDNSQuery(id: UInt16, name: String) -> Data {
     var data = Data()
     data.append(contentsOf: withUnsafeBytes(of: id.bigEndian) { Data($0) })
     data.append(contentsOf: [0x01, 0x00]) // recursion desired
-    data.append(contentsOf: [0, 1, 0, 0, 0, 0]) // one question
+    data.append(contentsOf: [0, 1, 0, 0, 0, 0, 0, 0]) // one question, no records
     for label in name.split(separator: ".") {
         data.append(UInt8(label.count))
         data.append(contentsOf: label.utf8)
