@@ -275,9 +275,10 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
         // The engine calls openTun synchronously on its own thread; the provider
         // and settings are used exactly once here and not touched concurrently,
         // which is what the unsafe annotation attests to.
-        guard let tunnelForCall = self.tunnel else {
+        guard let provider = self.tunnel else {
             throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "no tunnel provider"])
         }
+        nonisolated(unsafe) let tunnelForCall = provider
         nonisolated(unsafe) let settingsForCall = settings
         try runBlocking {
             try await tunnelForCall.setTunnelNetworkSettings(settingsForCall)
