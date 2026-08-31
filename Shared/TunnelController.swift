@@ -14,8 +14,14 @@ final class TunnelController {
     private(set) var latencies: [TunnelServer.ID: Double] = [:]
     private(set) var isTestingLatency = false
     var configuration: TunnelConfiguration = .default
+    private(set) var profiles: [TunnelProfile] = []
+    private(set) var activeProfileID = UUID()
 
-    private let store = TunnelStore()
+    var activeProfile: TunnelProfile? {
+        profiles.first { $0.id == activeProfileID }
+    }
+
+    private let store: TunnelStore
     private var manager: NETunnelProviderManager?
     private var observing = false
     private var statsTask: Task<Void, Never>?
@@ -38,8 +44,21 @@ final class TunnelController {
         configuration.servers.first?.id == id
     }
 
+    init(store: TunnelStore = TunnelStore()) {
+        self.store = store
+    }
+
+    /// Profile state only; split out so tests can exercise it without
+    /// touching the profile manager.
+    func reloadProfiles() {
+        let set = store.loadProfileSet()
+        profiles = set.profiles
+        activeProfileID = set.activeProfileID
+        configuration = set.activeProfile?.configuration ?? .default
+    }
+
     func refresh() async {
-        configuration = store.loadConfiguration()
+        reloadProfiles()
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
             let manager = managers.first { $0.localizedDescription == Self.profileTitle }
@@ -213,12 +232,47 @@ final class TunnelController {
     }
 
     private func persist() {
+        guard let index = profiles.firstIndex(where: { $0.id == activeProfileID }) else { return }
+        profiles[index].configuration = configuration
         do {
-            try store.saveConfiguration(configuration)
+            try store.saveProfileSet(ProfileSet(profiles: profiles, activeProfileID: activeProfileID))
             lastError = nil
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: - Profiles
+
+    /// Switching profiles updates the stored active configuration immediately;
+    /// a running tunnel keeps its current engine config until reconnected.
+    func switchProfile(to id: TunnelProfile.ID) {
+        guard id != activeProfileID, profiles.contains(where: { $0.id == id }) else { return }
+        persist()
+        activeProfileID = id
+        configuration = profiles.first { $0.id == id }?.configuration ?? .default
+        latencies.removeAll()
+        persist()
+    }
+
+    @discardableResult
+    func addProfile(named name: String) -> TunnelProfile.ID? {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let profile = TunnelProfile(name: trimmed)
+        profiles.append(profile)
+        persist()
+        return profile.id
+    }
+
+    func deleteActiveProfile() {
+        guard profiles.count > 1, let current = activeProfile else { return }
+        profiles.removeAll { $0.id == current.id }
+        let next = profiles[profiles.startIndex]
+        activeProfileID = next.id
+        configuration = next.configuration
+        latencies.removeAll()
+        persist()
     }
 
     private static let profileTitle = "Waypo"

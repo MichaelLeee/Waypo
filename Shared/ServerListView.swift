@@ -9,6 +9,8 @@ struct ServerListView: View {
     @State private var showingNewServer = false
     @State private var showingImport = false
     @State private var showingLogs = false
+    @State private var showingNewProfile = false
+    @State private var newProfileName = ""
 
     var body: some View {
         Group {
@@ -30,6 +32,16 @@ struct ServerListView: View {
         .sheet(isPresented: $showingLogs) {
             LogView(controller: controller)
         }
+        .alert("New Profile", isPresented: $showingNewProfile) {
+            TextField("Name", text: $newProfileName)
+            Button("Create") {
+                controller.addProfile(named: newProfileName)
+                newProfileName = ""
+            }
+            Button("Cancel", role: .cancel) { newProfileName = "" }
+        } message: {
+            Text("Each profile has its own server list.")
+        }
         .overlay {
             if controller.configuration.servers.isEmpty {
                 ContentUnavailableView(
@@ -46,7 +58,7 @@ struct ServerListView: View {
         List(selection: $selection) {
             rows
         }
-        .toolbar { toolbarContent }
+        .toolbar { profileToolbar; toolbarContent }
 #else
         List {
             if showsConnectionRow {
@@ -63,7 +75,7 @@ struct ServerListView: View {
                 rows
             }
         }
-        .toolbar { toolbarContent }
+        .toolbar { profileToolbar; toolbarContent }
 #endif
     }
 
@@ -117,6 +129,39 @@ struct ServerListView: View {
         Divider()
         Button("Delete", role: .destructive) {
             controller.deleteServer(server.id)
+        }
+    }
+
+    private var profileToolbar: some ToolbarContent {
+        ToolbarItem {
+            Menu {
+                ForEach(controller.profiles) { profile in
+                    Button {
+                        controller.switchProfile(to: profile.id)
+                    } label: {
+                        if profile.id == controller.activeProfileID {
+                            Label(profile.name, systemImage: "checkmark")
+                        } else {
+                            Text(profile.name)
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    showingNewProfile = true
+                } label: {
+                    Label("New Profile…", systemImage: "plus")
+                }
+                if controller.profiles.count > 1 {
+                    Button(role: .destructive) {
+                        controller.deleteActiveProfile()
+                    } label: {
+                        Label("Delete Active Profile", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Label(controller.activeProfile?.name ?? "Profile", systemImage: "square.stack.3d.up")
+            }
         }
     }
 

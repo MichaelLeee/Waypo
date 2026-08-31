@@ -98,4 +98,81 @@ struct TunnelConfigurationTests {
         let store = TunnelStore(suiteName: suite)
         #expect(store.loadConfiguration() == TunnelConfiguration.default)
     }
+
+    @Test
+    func profileSetRoundTrip() throws {
+        let suite = "test.waypo.store.profiles"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let home = TunnelProfile(name: "Home", configuration: TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.6", port: 443)],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        ))
+        let travel = TunnelProfile(name: "Travel")
+        try store.saveProfileSet(ProfileSet(profiles: [home, travel], activeProfileID: travel.id))
+
+        let loaded = store.loadProfileSet()
+        #expect(loaded.profiles.count == 2)
+        #expect(loaded.activeProfileID == travel.id)
+        #expect(loaded.activeProfile?.name == "Travel")
+        // The active profile is mirrored into the single-configuration key
+        // the provider extension reads.
+        #expect(store.loadConfiguration() == travel.configuration)
+    }
+
+    @Test
+    func legacyConfigurationMigratesToDefaultProfile() throws {
+        let suite = "test.waypo.store.migration"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "Legacy", host: "198.51.100.7", port: 8443)],
+            mtu: 1500,
+            dnsAddresses: ["8.8.8.8"]
+        )
+        try store.saveConfiguration(config)
+
+        let set = store.loadProfileSet()
+        #expect(set.profiles.count == 1)
+        #expect(set.profiles.first?.name == "Default")
+        #expect(set.profiles.first?.configuration == config)
+        #expect(set.activeProfile?.configuration == config)
+    }
+
+    @Test
+    @MainActor
+    func controllerSwitchesAndPersistsProfiles() throws {
+        let suite = "test.waypo.controller.profiles"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+        #expect(controller.activeProfile?.name == "Default")
+
+        let id = controller.addProfile(named: "  Second  ")
+        #expect(id != nil)
+        controller.switchProfile(to: id!)
+        #expect(controller.activeProfile?.name == "Second")
+        #expect(controller.configuration.servers.isEmpty)
+
+        controller.addServer(TunnelServer(name: "S", host: "198.51.100.8", port: 443))
+        #expect(controller.configuration.servers.count == 1)
+
+        // Re-reading from the store keeps Second active with its server.
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.activeProfile?.name == "Second")
+        #expect(reloaded.configuration.servers.count == 1)
+
+        reloaded.deleteActiveProfile()
+        #expect(reloaded.activeProfile?.name == "Default")
+        #expect(reloaded.profiles.count == 1)
+    }
 }

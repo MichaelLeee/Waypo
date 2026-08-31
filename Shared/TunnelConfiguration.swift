@@ -91,4 +91,6 @@ struct TunnelConfiguration: Codable, Hashable, Sendable {
         mtu: 1500,
         dnsAddresses: ["1.1.1.1", "8.8.8.8"]
     )
+
+    static let empty = TunnelConfiguration(servers: [], mtu: 1500, dnsAddresses: ["1.1.1.1", "8.8.8.8"])
 }
