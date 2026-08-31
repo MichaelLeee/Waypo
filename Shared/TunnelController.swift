@@ -6,7 +6,10 @@ import Observation
 @MainActor
 @Observable
 final class TunnelController {
-    private(set) var status: NEVPNStatus = .invalid
+    private(set) var status: NEVPNStatus = .invalid {
+        didSet { updateStatsPolling() }
+    }
+    private(set) var traffic: CoreStats?
     private(set) var lastError: String?
     private(set) var latencies: [TunnelServer.ID: Double] = [:]
     private(set) var isTestingLatency = false
@@ -15,6 +18,7 @@ final class TunnelController {
     private let store = TunnelStore()
     private var manager: NETunnelProviderManager?
     private var observing = false
+    private var statsTask: Task<Void, Never>?
 
     var statusLabel: String {
         switch status {
@@ -99,6 +103,43 @@ final class TunnelController {
     private func sendOutboundSelection(_ id: TunnelServer.ID) async {
         guard let session = manager?.connection as? NETunnelProviderSession else { return }
         try? session.sendProviderMessage(Data("select \(id.uuidString)".utf8)) { _ in }
+    }
+
+    // MARK: - Live traffic stats
+
+    /// While connected, polls the provider once a second for its latest
+    /// engine stats snapshot so the UI can show live counters.
+    private func updateStatsPolling() {
+        if status == .connected {
+            guard statsTask == nil else { return }
+            statsTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.pollStats()
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        } else {
+            statsTask?.cancel()
+            statsTask = nil
+            traffic = nil
+        }
+    }
+
+    private func pollStats() async {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let response: Data? = await withCheckedContinuation { continuation in
+            do {
+                try session.sendProviderMessage(Data("stats".utf8)) { reply in
+                    continuation.resume(returning: reply)
+                }
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        guard let response, let stats = try? JSONDecoder().decode(CoreStats.self, from: response) else {
+            return
+        }
+        traffic = stats
     }
 
     // MARK: - Import

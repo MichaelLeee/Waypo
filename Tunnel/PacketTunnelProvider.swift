@@ -123,6 +123,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?(Data(text.utf8))
                 return
             }
+            if message == "stats" {
+                if let stats = engineHolder.get()?.currentStats(),
+                   let data = try? JSONEncoder().encode(stats) {
+                    completionHandler?(data)
+                } else {
+                    completionHandler?(nil)
+                }
+                return
+            }
             if message.hasPrefix("select ") {
                 engineHolder.get()?.selectOutbound(String(message.dropFirst("select ".count)))
                 completionHandler?(nil)

@@ -6,17 +6,24 @@ struct ConnectionStatusRow: View {
     var controller: TunnelController
 
     var body: some View {
-        HStack {
-            Text(controller.statusLabel)
-                .foregroundStyle(statusColor)
-            Spacer()
-            Toggle("", isOn: Binding(
-                get: { controller.isActive },
-                set: { _ in Task { await controller.toggle() } }
-            ))
-            .toggleStyle(.switch)
-            .labelsHidden()
-            .disabled(controller.status == .disconnecting)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(controller.statusLabel)
+                    .foregroundStyle(statusColor)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { controller.isActive },
+                    set: { _ in Task { await controller.toggle() } }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(controller.status == .disconnecting)
+            }
+            if let traffic = controller.traffic {
+                Text("\(byteCount(traffic.bytesOut)) up · \(byteCount(traffic.bytesIn)) down · \(traffic.activeConnections) active")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -27,6 +34,10 @@ struct ConnectionStatusRow: View {
         default: .secondary
         }
     }
+}
+
+private func byteCount(_ value: UInt64) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .binary)
 }
 
 /// Signature connection control for the macOS detail pane.
@@ -46,6 +57,16 @@ struct ConnectionCard: View {
                 Text("\(server.name) — \(server.host):\(server.port)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            if controller.status == .connected, let traffic = controller.traffic {
+                HStack(spacing: 16) {
+                    Label(byteCount(traffic.bytesOut), systemImage: "arrow.up")
+                    Label(byteCount(traffic.bytesIn), systemImage: "arrow.down")
+                    Label("\(traffic.activeConnections)", systemImage: "link")
+                }
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
 
             Button(action: { Task { await controller.toggle() } }) {

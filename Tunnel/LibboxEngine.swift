@@ -129,6 +129,11 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         hub.stats()
     }
 
+    /// Latest status snapshot pushed by the engine's command client.
+    func currentStats() -> CoreStats? {
+        hub.snapshotStats()
+    }
+
     // MARK: - Configuration mapping
 
     private func makeConfigurationContent(_ configuration: TunnelConfiguration) throws -> String {
@@ -291,6 +296,7 @@ final class EngineHub: @unchecked Sendable {
     private let lock = NSLock()
     private var eventStreams: [UUID: AsyncStream<CoreEvent>.Continuation] = [:]
     private var statsStreams: [UUID: AsyncStream<CoreStats>.Continuation] = [:]
+    private var latestStats: CoreStats?
     private var open = true
 
     func events() -> AsyncStream<CoreEvent> {
@@ -338,9 +344,16 @@ final class EngineHub: @unchecked Sendable {
 
     func emit(_ stats: CoreStats) {
         lock.lock()
+        latestStats = stats
         let targets = open ? Array(statsStreams.values) : []
         lock.unlock()
         for continuation in targets { continuation.yield(stats) }
+    }
+
+    func snapshotStats() -> CoreStats? {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestStats
     }
 
     func close() {

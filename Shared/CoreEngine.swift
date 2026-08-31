@@ -3,7 +3,7 @@ import Foundation
 /// The narrow boundary between the app and the tunnel engine.
 /// Engine implementations plug in behind this protocol and its C-ABI
 /// counterpart — nothing above this layer may know which engine is running.
-struct CoreStats: Sendable {
+struct CoreStats: Sendable, Codable {
     var bytesIn: UInt64 = 0
     var bytesOut: UInt64 = 0
     var activeConnections: Int = 0
