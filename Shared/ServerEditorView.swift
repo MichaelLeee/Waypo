@@ -44,6 +44,27 @@ struct ServerEditorView: View {
                             .autocorrectionDisabled()
 
                     }
+                    if draft.transport == "trojan" || draft.transport == "vless" {
+                        Picker("Network", selection: networkBinding) {
+                            Text("TCP").tag("tcp")
+                            Text("WebSocket").tag("ws")
+                            Text("gRPC").tag("grpc")
+                        }
+                        if networkBinding.wrappedValue == "ws" {
+                            TextField("Path", text: optionalString($draft.wsPath))
+                                .autocorrectionDisabled()
+                            TextField("Host Header", text: optionalString($draft.wsHost))
+                                .autocorrectionDisabled()
+                        }
+                        if networkBinding.wrappedValue == "grpc" {
+                            TextField("Service Name", text: optionalString($draft.serviceName))
+                                .autocorrectionDisabled()
+                        }
+                        if draft.transport == "vless" {
+                            TextField("Flow", text: optionalString($draft.flow))
+                                .autocorrectionDisabled()
+                        }
+                    }
                 }
 
                 Section("TLS") {
@@ -51,7 +72,12 @@ struct ServerEditorView: View {
                     if draft.useTLS {
                         TextField("Server Name", text: optionalString($draft.serverName))
                             .autocorrectionDisabled()
-
+                        TextField("Reality Public Key", text: optionalString($draft.realityPublicKey))
+                            .autocorrectionDisabled()
+                        if !(draft.realityPublicKey ?? "").isEmpty {
+                            TextField("Reality Short ID", text: optionalString($draft.realityShortID))
+                                .autocorrectionDisabled()
+                        }
                     }
                 }
             }
@@ -91,6 +117,13 @@ struct ServerEditorView: View {
         Binding(
             get: { binding.wrappedValue ?? "" },
             set: { binding.wrappedValue = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private var networkBinding: Binding<String> {
+        Binding(
+            get: { draft.network ?? "tcp" },
+            set: { draft.network = $0 == "tcp" ? nil : $0 }
         )
     }
 }

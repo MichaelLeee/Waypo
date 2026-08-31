@@ -15,14 +15,31 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     var useTLS: Bool = false
     /// TLS server name override; defaults to `host` when TLS is enabled.
     var serverName: String?
+    /// Overlay network above TCP: "ws" or "grpc"; nil/"tcp" is plain TCP.
+    var network: String?
+    /// WebSocket request path (network == "ws").
+    var wsPath: String?
+    /// WebSocket Host header override (network == "ws").
+    var wsHost: String?
+    /// gRPC service name (network == "grpc").
+    var serviceName: String?
+    /// VLESS flow control, e.g. "xtls-rprx-vision".
+    var flow: String?
+    /// Reality public key; its presence switches TLS into Reality mode.
+    var realityPublicKey: String?
+    var realityShortID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, transport, credentials, cipher, useTLS, serverName
+        case network, wsPath, wsHost, serviceName, flow, realityPublicKey, realityShortID
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
          credentials: String? = nil, cipher: String? = nil,
-         useTLS: Bool = false, serverName: String? = nil) {
+         useTLS: Bool = false, serverName: String? = nil,
+         network: String? = nil, wsPath: String? = nil, wsHost: String? = nil,
+         serviceName: String? = nil, flow: String? = nil,
+         realityPublicKey: String? = nil, realityShortID: String? = nil) {
         self.id = id
         self.name = name
         self.host = host
@@ -32,6 +49,13 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         self.cipher = cipher
         self.useTLS = useTLS
         self.serverName = serverName
+        self.network = network
+        self.wsPath = wsPath
+        self.wsHost = wsHost
+        self.serviceName = serviceName
+        self.flow = flow
+        self.realityPublicKey = realityPublicKey
+        self.realityShortID = realityShortID
     }
 
     init(from decoder: Decoder) throws {
@@ -45,6 +69,13 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         cipher = try container.decodeIfPresent(String.self, forKey: .cipher)
         useTLS = try container.decodeIfPresent(Bool.self, forKey: .useTLS) ?? false
         serverName = try container.decodeIfPresent(String.self, forKey: .serverName)
+        network = try container.decodeIfPresent(String.self, forKey: .network)
+        wsPath = try container.decodeIfPresent(String.self, forKey: .wsPath)
+        wsHost = try container.decodeIfPresent(String.self, forKey: .wsHost)
+        serviceName = try container.decodeIfPresent(String.self, forKey: .serviceName)
+        flow = try container.decodeIfPresent(String.self, forKey: .flow)
+        realityPublicKey = try container.decodeIfPresent(String.self, forKey: .realityPublicKey)
+        realityShortID = try container.decodeIfPresent(String.self, forKey: .realityShortID)
     }
 }
 

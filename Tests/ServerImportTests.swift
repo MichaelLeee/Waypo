@@ -112,6 +112,38 @@ struct ServerImportTests {
     }
 
     @Test
+    func vlessWebSocketTransport() {
+        let server = ServerImport.parseLine(
+            "vless://uuid@w.example.com:443?type=ws&path=%2Fray&host=cdn.example.com&security=tls#WS%20Node"
+        )
+        #expect(server?.network == "ws")
+        #expect(server?.wsPath == "/ray")
+        #expect(server?.wsHost == "cdn.example.com")
+        #expect(server?.useTLS == true)
+    }
+
+    @Test
+    func vlessRealityWithFlow() {
+        let server = ServerImport.parseLine(
+            "vless://uuid@r.example.com:443?security=reality&sni=r.example.com&flow=xtls-rprx-vision&pbk=PUBKEY&sid=abcd#Reality"
+        )
+        #expect(server?.useTLS == true)
+        #expect(server?.realityPublicKey == "PUBKEY")
+        #expect(server?.realityShortID == "abcd")
+        #expect(server?.flow == "xtls-rprx-vision")
+        #expect(server?.serverName == "r.example.com")
+    }
+
+    @Test
+    func trojanGrpcTransport() {
+        let server = ServerImport.parseLine(
+            "trojan://pw@g.example.com:443?type=grpc&serviceName=svc#GRPC"
+        )
+        #expect(server?.network == "grpc")
+        #expect(server?.serviceName == "svc")
+    }
+
+    @Test
     func urlSafeBase64() {
         // Web-safe alphabet and missing padding must both decode.
         var userInfo = Data("aes-128-gcm:aaa+b/c".utf8).base64EncodedString()

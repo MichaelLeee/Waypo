@@ -80,7 +80,11 @@ enum ServerImport {
             transport: "trojan",
             credentials: decodedUser(url),
             useTLS: true,
-            serverName: queryValue("sni", in: url) ?? queryValue("peer", in: url)
+            serverName: queryValue("sni", in: url) ?? queryValue("peer", in: url),
+            network: overlayNetwork(url),
+            wsPath: queryValue("path", in: url),
+            wsHost: queryValue("host", in: url),
+            serviceName: queryValue("serviceName", in: url)
         )
     }
 
@@ -94,8 +98,22 @@ enum ServerImport {
             transport: "vless",
             credentials: decodedUser(url),
             useTLS: security == "tls" || security == "reality",
-            serverName: queryValue("sni", in: url)
+            serverName: queryValue("sni", in: url),
+            network: overlayNetwork(url),
+            wsPath: queryValue("path", in: url),
+            wsHost: queryValue("host", in: url),
+            serviceName: queryValue("serviceName", in: url),
+            flow: queryValue("flow", in: url),
+            realityPublicKey: security == "reality" ? queryValue("pbk", in: url) : nil,
+            realityShortID: security == "reality" ? queryValue("sid", in: url) : nil
         )
+    }
+
+    /// Share links name the overlay network in `type`; "tcp" (or absent)
+    /// means plain TCP.
+    private static func overlayNetwork(_ url: URL) -> String? {
+        guard let type = queryValue("type", in: url)?.lowercased(), type != "tcp" else { return nil }
+        return type
     }
 
     private static func parseShadowsocks(_ url: URL, rawLine: String) -> TunnelServer? {

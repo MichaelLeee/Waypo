@@ -172,6 +172,9 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
                     outbound["password"] = server.credentials ?? ""
                 case "vless":
                     outbound["uuid"] = server.credentials ?? ""
+                    if let flow = server.flow, !flow.isEmpty {
+                        outbound["flow"] = flow
+                    }
                 case "shadowsocks":
                     outbound["password"] = server.credentials ?? ""
                     outbound["method"] = server.cipher ?? "aes-128-gcm"
@@ -179,7 +182,34 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
                     break
                 }
                 if server.useTLS {
-                    outbound["tls"] = ["enabled": true, "server_name": server.serverName ?? server.host]
+                    var tls: [String: Any] = ["enabled": true, "server_name": server.serverName ?? server.host]
+                    if let publicKey = server.realityPublicKey, !publicKey.isEmpty {
+                        tls["reality"] = [
+                            "enabled": true,
+                            "public_key": publicKey,
+                            "short_id": server.realityShortID ?? "",
+                        ]
+                        tls["utls"] = ["enabled": true, "fingerprint": "chrome"]
+                    }
+                    outbound["tls"] = tls
+                }
+                switch server.network ?? "tcp" {
+                case "ws":
+                    var transport: [String: Any] = ["type": "ws"]
+                    if let path = server.wsPath, !path.isEmpty {
+                        transport["path"] = path
+                    }
+                    if let host = server.wsHost, !host.isEmpty {
+                        transport["headers"] = ["Host": host]
+                    }
+                    outbound["transport"] = transport
+                case "grpc":
+                    outbound["transport"] = [
+                        "type": "grpc",
+                        "service_name": server.serviceName ?? "",
+                    ]
+                default:
+                    break
                 }
                 serverOutbounds.append(outbound)
             }
