@@ -43,7 +43,7 @@ enum ServerImport {
     private static func queryValue(_ name: String, in url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?
-            .first { $0.name.lowercased() == name }?
+            .first { $0.name.lowercased() == name.lowercased() }?
             .value
     }
 
