@@ -4,14 +4,17 @@ let usage = """
 WaypoHarness — drives the tunnel engine in-process against a real utun device.
 No NetworkExtension involved; needs root for utun creation.
 
-Usage: sudo WaypoHarness [--self-test] [--unit N] [--address A.B.C.D] [--default-route]
+Usage: sudo WaypoHarness [--self-test | --run PATH] [--unit N] [--address A.B.C.D]
 
   --self-test       run the data-path self-test (UDP round trip through the
                     engine) and exit 0 on success, 1 on failure
+  --run PATH        run the tunnel with the configuration JSON at PATH
+                    (the app writes one to Application Support/Waypo on
+                    every save). The engine manages system routes, so all
+                    traffic flows through the configured server until
+                    Ctrl+C.
   --unit N          utun unit number (default 9, device becomes utun9)
   --address A.B.C.D local IPv4 address on the utun device (default 198.18.0.1)
-  --default-route   route all traffic into the utun device (off by default;
-                    without engine forwarding enabled traffic blackholes)
 """
 
 var unit: Int32 = 9
@@ -25,6 +28,7 @@ var address = "198.18.0.1"
 let peerAddress = "198.18.0.2"
 var defaultRoute = false
 var selfTest = false
+var runConfigPath: String?
 
 let rawArgs = Array(ProcessInfo.processInfo.arguments.dropFirst())
 var index = 0
@@ -49,6 +53,13 @@ while index < rawArgs.count {
         defaultRoute = true
     case "--self-test":
         selfTest = true
+    case "--run":
+        index += 1
+        guard index < rawArgs.count else {
+            print("missing value for --run\n\(usage)")
+            exit(2)
+        }
+        runConfigPath = rawArgs[index]
     case "-h", "--help":
         print(usage)
         exit(0)
@@ -84,6 +95,9 @@ func run(_ launchPath: String, _ args: [String]) throws -> String {
 do {
     if selfTest {
         exit(await runSelfTest(unit: unit, address: address, peerAddress: peerAddress))
+    }
+    if let configPath = runConfigPath {
+        exit(await runTunnel(unit: unit, address: address, peerAddress: peerAddress, configPath: configPath))
     }
 
     let utun = try UtunInterface(unit: unit)

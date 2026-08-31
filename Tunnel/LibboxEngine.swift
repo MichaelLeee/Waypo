@@ -30,10 +30,11 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
     }
 
     /// Harness construction: the tun file descriptor already exists (utun),
-    /// no NetworkExtension settings are applied.
-    init(tunFileDescriptor: Int32) {
+    /// no NetworkExtension settings are applied. When running as root with
+    /// engine-managed routes, pass autoRoute: true (harness `--run` mode).
+    init(tunFileDescriptor: Int32, autoRoute: Bool = false) {
         self.tunnel = nil
-        self.autoRoute = false
+        self.autoRoute = autoRoute
         self.platformInterface = WaypoPlatformInterface(tunFileDescriptor: tunFileDescriptor)
     }
 

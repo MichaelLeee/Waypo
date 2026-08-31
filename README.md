@@ -40,6 +40,14 @@ With the harness running, traffic sent to the utun address (e.g. `ping 198.18.0.
 
 `sudo WaypoHarness --self-test` runs a one-shot data-path check instead: it sends real UDP datagrams from a socket pinned to the utun device so the kernel routes them through the engine, echoes them against an on-host server, and verifies the round trip with deterministic metrics (payload equality, no loss, byte counters balance). It exits 0 on success. CI runs this on every push once the engine library is built.
 
+`sudo WaypoHarness --run PATH` runs the full tunnel from a configuration JSON — no NetworkExtension and no special entitlements, which makes it usable on a free developer account. Export the configuration from the app (it mirrors every save to `~/Library/Application Support/Waypo/tunnel-configuration.json`) or write one by hand, then:
+
+```sh
+sudo $BUILT_PRODUCTS_DIR/WaypoHarness --run ~/Library/Application\ Support/Waypo/tunnel-configuration.json
+```
+
+The engine manages system routes itself in this mode, so all traffic flows through the configured server until you press Ctrl+C. Route changes require root, hence `sudo`.
+
 ## Testing
 
 The unit test suite runs on macOS without any host app or signing:
