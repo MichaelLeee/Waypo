@@ -15,6 +15,9 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
     private let platformInterface: WaypoPlatformInterface
     private let logger = Logger(subsystem: "org.waypo", category: "engine")
     private var commandServer: LibboxCommandServer?
+    private var commandClient: LibboxCommandClient?
+    private var clientBridge: EngineClientBridge?
+    private let hub = EngineHub()
     /// Harness mode injects packets through an fd it already owns, so the
     /// engine must not manage routes on the host.
     private let autoRoute: Bool
@@ -56,15 +59,40 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "command server creation failed"])
         }
         commandServer = server
+        // The command listener must be up before the service: the status
+        // client below dials it right after the service starts.
+        try server.start()
 
         try server.startOrReloadService(configContent, options: LibboxOverrideOptions())
+
+        let options = LibboxCommandClientOptions()
+        options.statusInterval = 1_000_000_000 // nanoseconds
+        options.addCommand(LibboxCommandStatus)
+        let bridge = EngineClientBridge(hub: hub)
+        clientBridge = bridge
+        guard let client = LibboxNewCommandClient(bridge, options) else {
+            throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "status client creation failed"])
+        }
+        commandClient = client
+        do {
+            try client.connect()
+        } catch {
+            // The data path must survive a telemetry failure; the status
+            // streams simply stay silent and the self-test gate would
+            // surface a broken command channel.
+            logger.error("status client failed to connect: \(error.localizedDescription)")
+        }
         logger.info("engine started")
     }
 
     func stop() async {
+        try? commandClient?.disconnect()
+        commandClient = nil
+        clientBridge = nil
         try? commandServer?.closeService()
         commandServer?.close()
         commandServer = nil
+        hub.close()
         logger.info("engine stopped")
     }
 
@@ -77,11 +105,11 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
     }
 
     func events() -> AsyncStream<CoreEvent> {
-        AsyncStream { $0.finish() }
+        hub.events()
     }
 
     func stats() -> AsyncStream<CoreStats> {
-        AsyncStream { $0.finish() }
+        hub.stats()
     }
 
     // MARK: - Configuration mapping
@@ -192,6 +220,133 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         return String(decoding: data, as: UTF8.self)
     }
+}
+
+/// Fan-out hub feeding every events()/stats() subscriber from the engine's
+/// command-client callbacks, which arrive on arbitrary Go threads.
+final class EngineHub: @unchecked Sendable {
+    private let lock = NSLock()
+    private var eventStreams: [UUID: AsyncStream<CoreEvent>.Continuation] = [:]
+    private var statsStreams: [UUID: AsyncStream<CoreStats>.Continuation] = [:]
+    private var open = true
+
+    func events() -> AsyncStream<CoreEvent> {
+        AsyncStream { continuation in
+            let id = UUID()
+            var cancelled = false
+            lock.lock()
+            if open {
+                eventStreams[id] = continuation
+            } else {
+                cancelled = true
+            }
+            lock.unlock()
+            if cancelled { continuation.finish() }
+            continuation.onTermination = { [weak self] _ in
+                self?.removeEvent(id)
+            }
+        }
+    }
+
+    func stats() -> AsyncStream<CoreStats> {
+        AsyncStream { continuation in
+            let id = UUID()
+            var cancelled = false
+            lock.lock()
+            if open {
+                statsStreams[id] = continuation
+            } else {
+                cancelled = true
+            }
+            lock.unlock()
+            if cancelled { continuation.finish() }
+            continuation.onTermination = { [weak self] _ in
+                self?.removeStats(id)
+            }
+        }
+    }
+
+    func emit(_ event: CoreEvent) {
+        lock.lock()
+        let targets = open ? Array(eventStreams.values) : []
+        lock.unlock()
+        for continuation in targets { continuation.yield(event) }
+    }
+
+    func emit(_ stats: CoreStats) {
+        lock.lock()
+        let targets = open ? Array(statsStreams.values) : []
+        lock.unlock()
+        for continuation in targets { continuation.yield(stats) }
+    }
+
+    func close() {
+        lock.lock()
+        open = false
+        let events = Array(eventStreams.values)
+        eventStreams = [:]
+        let stats = Array(statsStreams.values)
+        statsStreams = [:]
+        lock.unlock()
+        for continuation in events { continuation.finish() }
+        for continuation in stats { continuation.finish() }
+    }
+
+    private func removeEvent(_ id: UUID) {
+        lock.lock()
+        eventStreams[id] = nil
+        lock.unlock()
+    }
+
+    private func removeStats(_ id: UUID) {
+        lock.lock()
+        statsStreams[id] = nil
+        lock.unlock()
+    }
+}
+
+/// Receives the engine's command-client callbacks and forwards them into the
+/// hub. Callbacks arrive on Go-managed threads; every touched type is
+/// thread-safe.
+final class EngineClientBridge: NSObject, LibboxCommandClientHandlerProtocol, @unchecked Sendable {
+    private let hub: EngineHub
+
+    init(hub: EngineHub) {
+        self.hub = hub
+    }
+
+    func connected() {
+        hub.emit(.started)
+    }
+
+    func disconnected(_ message: String?) {
+        hub.emit(.stopped(reason: message ?? "status client disconnected"))
+    }
+
+    func writeStatus(_ message: LibboxStatusMessage?) {
+        guard let message else { return }
+        hub.emit(CoreStats(
+            bytesIn: UInt64(max(0, message.downlinkTotal)),
+            bytesOut: UInt64(max(0, message.uplinkTotal)),
+            activeConnections: Int(message.connectionsIn) + Int(message.connectionsOut)
+        ))
+    }
+
+    func setDefaultLogLevel(_ level: Int32) {}
+
+    func clearLogs() {}
+
+    func writeLogs(_ messageList: (any LibboxLogIteratorProtocol)?) {}
+
+    func writeGroups(_ message: (any LibboxOutboundGroupIteratorProtocol)?) {}
+
+    func writeOutbounds(_ message: (any LibboxOutboundGroupItemIteratorProtocol)?) {}
+
+    func initializeClashMode(_ modeList: (any LibboxStringIteratorProtocol)?, currentMode: String?) {}
+
+    func updateClashMode(_ newMode: String?) {}
+
+    func writeConnectionEvents(_ events: LibboxConnectionEvents?) {}
 }
 
 /// Applies network settings on behalf of the engine and hands over the tun fd.

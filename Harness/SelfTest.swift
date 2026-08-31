@@ -92,6 +92,10 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
         dnsAddresses: ["127.0.0.1"]
     )
     let engine = LibboxCoreEngine(tunFileDescriptor: utun.fileDescriptor)
+    // Subscribe to the telemetry streams before the engine comes up so the
+    // startup event cannot slip past the collector.
+    let collector = StreamCollector()
+    await collector.consume(engine: engine)
     try await engine.start(configuration: configuration, packetFlow: flow)
     print("engine started")
     try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -139,6 +143,20 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     }
     if replyBytes != sentBytes {
         failures.append("byte counters do not balance: sent \(sentBytes), received back \(replyBytes)")
+    }
+
+    // Stats gate: the engine's status stream must report the traffic the
+    // round trip just pushed through the device, proving the command channel
+    // is live end to end.
+    if let latest = await collector.waitForStats(uplinkAtLeast: UInt64(sentBytes), timeout: 10) {
+        print("stats gate: uplinkTotal=\(latest.bytesOut)B downlinkTotal=\(latest.bytesIn)B connections=\(latest.activeConnections)")
+    } else {
+        failures.append("no status update reporting at least \(sentBytes) bytes sent through the engine")
+    }
+    if await collector.waitForStartedEvent(timeout: 2) {
+        print("events gate: lifecycle event received")
+    } else {
+        failures.append("no lifecycle event from the engine")
     }
 
     echoServer.close()
@@ -232,6 +250,60 @@ private func makeDNSQuery(id: UInt16, name: String) -> Data {
     data.append(contentsOf: [0, 1, 0, 1]) // A, IN
     return data
 }
+
+#if canImport(Libbox)
+/// Collects the engine's stats and event streams for the telemetry gates.
+/// The stream-consuming tasks start before engine.start(), so nothing the
+/// engine emits during startup can be missed.
+private actor StreamCollector {
+    private var stats: [CoreStats] = []
+    private var events: [CoreEvent] = []
+
+    func consume(engine: LibboxCoreEngine) {
+        Task {
+            for await event in engine.events() {
+                addEvent(event)
+            }
+        }
+        Task {
+            for await entry in engine.stats() {
+                addStats(entry)
+            }
+        }
+    }
+
+    private func addStats(_ entry: CoreStats) {
+        stats.append(entry)
+    }
+
+    private func addEvent(_ event: CoreEvent) {
+        events.append(event)
+    }
+
+    /// Waits for a status message reporting the requested uplink total.
+    func waitForStats(uplinkAtLeast threshold: UInt64, timeout: TimeInterval) async -> CoreStats? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let found = stats.first(where: { $0.bytesOut >= threshold }) {
+                return found
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return nil
+    }
+
+    func waitForStartedEvent(timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if events.contains(where: { if case .started = $0 { return true }; return false }) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return false
+    }
+}
+#endif
 
 /// Lock-protected datagram collector shared between a socket class and the
 /// DispatchSource handler it installs. Kept separate from the owning class so
