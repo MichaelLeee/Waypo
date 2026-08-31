@@ -117,10 +117,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func handleAppMessage(_ messageData: Data, completionHandler: (@Sendable (Data?) -> Void)?) {
 #if canImport(Libbox)
-        if String(data: messageData, encoding: .utf8) == "logs" {
-            let text = engineHolder.get()?.recentLogs().joined(separator: "\n") ?? ""
-            completionHandler?(Data(text.utf8))
-            return
+        if let message = String(data: messageData, encoding: .utf8) {
+            if message == "logs" {
+                let text = engineHolder.get()?.recentLogs().joined(separator: "\n") ?? ""
+                completionHandler?(Data(text.utf8))
+                return
+            }
+            if message.hasPrefix("select ") {
+                engineHolder.get()?.selectOutbound(String(message.dropFirst("select ".count)))
+                completionHandler?(nil)
+                return
+            }
         }
 #endif
         completionHandler?(nil)

@@ -82,13 +82,23 @@ final class TunnelController {
         persist()
     }
 
-    /// The engine routes through `servers.first`, so activating a server
-    /// means moving it to the front of the list.
+    /// Activating a server moves it to the front of the list (the persisted
+    /// preference, and the selector default on the next tunnel start). While
+    /// the tunnel is running, the provider is told to switch the live
+    /// selector outbound immediately.
     func setActiveServer(_ id: TunnelServer.ID) {
         guard let index = configuration.servers.firstIndex(where: { $0.id == id }), index != 0 else { return }
         let server = configuration.servers.remove(at: index)
         configuration.servers.insert(server, at: 0)
         persist()
+        if status == .connected {
+            Task { await sendOutboundSelection(id) }
+        }
+    }
+
+    private func sendOutboundSelection(_ id: TunnelServer.ID) async {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        try? session.sendProviderMessage(Data("select \(id.uuidString)".utf8)) { _ in }
     }
 
     // MARK: - Import

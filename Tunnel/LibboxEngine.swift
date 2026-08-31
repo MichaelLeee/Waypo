@@ -106,6 +106,15 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         commandServer?.wake()
     }
 
+    /// Switches the live selector outbound without restarting the tunnel.
+    func selectOutbound(_ tag: String) {
+        do {
+            try commandClient?.selectOutbound("out", outboundTag: tag)
+        } catch {
+            logger.error("outbound switch to \(tag, privacy: .public) failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Snapshot of the captured engine log lines, oldest first.
     func recentLogs() -> [String] {
         logBuffer.snapshot()
@@ -143,33 +152,49 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
             "dns_mode": autoRoute ? "hijack" : "disabled",
         ]
 
+        let remoteOutbounds = configuration.servers.filter { $0.transport != "direct" }
         // A direct transport has no remote endpoint; it becomes the final
         // outbound itself, which is what the harness self-test uses.
         let outbounds: [[String: Any]]
-        if server.transport == "direct" {
+        if remoteOutbounds.isEmpty {
             outbounds = [["type": "direct", "tag": "out"]]
         } else {
-            var outbound: [String: Any] = [
-                "type": server.transport,
+            var serverOutbounds: [[String: Any]] = []
+            for server in remoteOutbounds {
+                var outbound: [String: Any] = [
+                    "type": server.transport,
+                    "tag": server.id.uuidString,
+                    "server": server.host,
+                    "server_port": server.port,
+                ]
+                switch server.transport {
+                case "trojan":
+                    outbound["password"] = server.credentials ?? ""
+                case "vless":
+                    outbound["uuid"] = server.credentials ?? ""
+                case "shadowsocks":
+                    outbound["password"] = server.credentials ?? ""
+                    outbound["method"] = server.cipher ?? "aes-128-gcm"
+                default:
+                    break
+                }
+                if server.useTLS {
+                    outbound["tls"] = ["enabled": true, "server_name": server.serverName ?? server.host]
+                }
+                serverOutbounds.append(outbound)
+            }
+            // "out" is a selector over every server, so the active endpoint
+            // can be switched live (via the command client) without a tunnel
+            // restart. The default is the first server, which matches the
+            // persistence model of keeping the active server at index 0.
+            let selector: [String: Any] = [
+                "type": "selector",
                 "tag": "out",
-                "server": server.host,
-                "server_port": server.port,
+                "outbounds": serverOutbounds.map { $0["tag"] as? String ?? "" },
+                "default": serverOutbounds.first?["tag"] ?? "",
+                "interrupt_exist_connections": true,
             ]
-            switch server.transport {
-            case "trojan":
-                outbound["password"] = server.credentials ?? ""
-            case "vless":
-                outbound["uuid"] = server.credentials ?? ""
-            case "shadowsocks":
-                outbound["password"] = server.credentials ?? ""
-                outbound["method"] = server.cipher ?? "aes-128-gcm"
-            default:
-                break
-            }
-            if server.useTLS {
-                outbound["tls"] = ["enabled": true, "server_name": server.serverName ?? server.host]
-            }
-            outbounds = [outbound, ["type": "direct", "tag": "direct-out"]]
+            outbounds = [selector] + serverOutbounds + [["type": "direct", "tag": "direct-out"]]
         }
 
         // DNS hijacking only makes sense in production, where the device DNS
