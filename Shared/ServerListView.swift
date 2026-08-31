@@ -8,6 +8,7 @@ struct ServerListView: View {
     @State private var editingServer: TunnelServer?
     @State private var showingNewServer = false
     @State private var showingImport = false
+    @State private var showingLogs = false
 
     var body: some View {
         Group {
@@ -25,6 +26,9 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingImport) {
             ImportView(controller: controller)
+        }
+        .sheet(isPresented: $showingLogs) {
+            LogView(controller: controller)
         }
         .overlay {
             if controller.configuration.servers.isEmpty {
@@ -127,6 +131,11 @@ struct ServerListView: View {
                 showingImport = true
             } label: {
                 Label("Import", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                showingLogs = true
+            } label: {
+                Label("Engine Logs", systemImage: "doc.text")
             }
             Button {
                 Task { await controller.checkAllLatencies() }

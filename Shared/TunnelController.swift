@@ -106,6 +106,32 @@ final class TunnelController {
         return fresh.count
     }
 
+    // MARK: - Engine logs
+
+    /// Asks the provider process for its captured engine log lines.
+    /// Returns nil when the session cannot be reached at all (e.g. the
+    /// profile is not installed); an empty string means the provider has
+    /// nothing captured yet.
+    func fetchEngineLogs() async -> String? {
+        do {
+            let manager = try await loadOrCreateManager()
+            guard let session = manager.connection as? NETunnelProviderSession else { return nil }
+            return try await withCheckedThrowingContinuation { continuation in
+                do {
+                    try session.sendProviderMessage(to: Self.tunnelBundleID, data: Data("logs".utf8)) { response in
+                        let text = response.flatMap { String(data: $0, encoding: .utf8) }
+                        continuation.resume(returning: text ?? "")
+                    }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     // MARK: - Latency
 
     func checkLatency(for id: TunnelServer.ID) async {

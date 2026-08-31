@@ -18,6 +18,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
     private var commandClient: LibboxCommandClient?
     private var clientBridge: EngineClientBridge?
     private let hub = EngineHub()
+    private let logBuffer = LogBuffer()
     /// Harness mode injects packets through an fd it already owns, so the
     /// engine must not manage routes on the host.
     private let autoRoute: Bool
@@ -68,7 +69,8 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         let options = LibboxCommandClientOptions()
         options.statusInterval = 1_000_000_000 // nanoseconds
         options.addCommand(LibboxCommandStatus)
-        let bridge = EngineClientBridge(hub: hub)
+        options.addCommand(LibboxCommandLog)
+        let bridge = EngineClientBridge(hub: hub, logBuffer: logBuffer)
         clientBridge = bridge
         guard let client = LibboxNewCommandClient(bridge, options) else {
             throw NSError(domain: "Waypo", code: 1, userInfo: [NSLocalizedDescriptionKey: "status client creation failed"])
@@ -102,6 +104,11 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
 
     func wakeUp() {
         commandServer?.wake()
+    }
+
+    /// Snapshot of the captured engine log lines, oldest first.
+    func recentLogs() -> [String] {
+        logBuffer.snapshot()
     }
 
     func events() -> AsyncStream<CoreEvent> {
@@ -305,14 +312,45 @@ final class EngineHub: @unchecked Sendable {
     }
 }
 
+/// Bounded engine log ring buffer. Filled from the command client's log
+/// callbacks (arbitrary Go threads) and read by the provider's app-message
+/// handler; both sides go through the lock.
+final class LogBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+    private let capacity: Int
+
+    init(capacity: Int = 1000) {
+        self.capacity = capacity
+    }
+
+    func append(_ newLines: [String]) {
+        guard !newLines.isEmpty else { return }
+        lock.lock()
+        lines.append(contentsOf: newLines)
+        if lines.count > capacity {
+            lines.removeFirst(lines.count - capacity)
+        }
+        lock.unlock()
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines
+    }
+}
+
 /// Receives the engine's command-client callbacks and forwards them into the
 /// hub. Callbacks arrive on Go-managed threads; every touched type is
 /// thread-safe.
 final class EngineClientBridge: NSObject, LibboxCommandClientHandlerProtocol, @unchecked Sendable {
     private let hub: EngineHub
+    private let logBuffer: LogBuffer
 
-    init(hub: EngineHub) {
+    init(hub: EngineHub, logBuffer: LogBuffer) {
         self.hub = hub
+        self.logBuffer = logBuffer
     }
 
     func connected() {
@@ -336,7 +374,19 @@ final class EngineClientBridge: NSObject, LibboxCommandClientHandlerProtocol, @u
 
     func clearLogs() {}
 
-    func writeLogs(_ messageList: (any LibboxLogIteratorProtocol)?) {}
+    // Engine log levels: 0 panic, 1 fatal, 2 error, 3 warn, 4 info, 5 debug, 6 trace.
+    private static let levelLabels = ["PANIC", "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+
+    func writeLogs(_ messageList: (any LibboxLogIteratorProtocol)?) {
+        guard let messageList else { return }
+        var drained: [String] = []
+        while messageList.hasNext() {
+            guard let entry = messageList.next() else { break }
+            let label = Self.levelLabels.indices.contains(Int(entry.level)) ? Self.levelLabels[Int(entry.level)] : "LOG"
+            drained.append("\(label) \(entry.message)")
+        }
+        logBuffer.append(drained)
+    }
 
     func writeGroups(_ message: (any LibboxOutboundGroupIteratorProtocol)?) {}
 

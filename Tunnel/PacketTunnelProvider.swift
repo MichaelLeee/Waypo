@@ -116,6 +116,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func handleAppMessage(_ messageData: Data, completionHandler: (@Sendable (Data?) -> Void)?) {
+#if canImport(Libbox)
+        if String(data: messageData, encoding: .utf8) == "logs" {
+            let text = engineHolder.get()?.recentLogs().joined(separator: "\n") ?? ""
+            completionHandler?(Data(text.utf8))
+            return
+        }
+#endif
         completionHandler?(nil)
     }
 
