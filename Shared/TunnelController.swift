@@ -118,7 +118,7 @@ final class TunnelController {
             guard let session = manager.connection as? NETunnelProviderSession else { return nil }
             return try await withCheckedThrowingContinuation { continuation in
                 do {
-                    try session.sendProviderMessage(to: Self.tunnelBundleID, data: Data("logs".utf8)) { response in
+                    try session.sendProviderMessage(Data("logs".utf8)) { response in
                         let text = response.flatMap { String(data: $0, encoding: .utf8) }
                         continuation.resume(returning: text ?? "")
                     }
