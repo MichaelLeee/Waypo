@@ -346,7 +346,9 @@ final class EngineClientBridge: NSObject, LibboxCommandClientHandlerProtocol, @u
 
     func updateClashMode(_ newMode: String?) {}
 
-    func writeConnectionEvents(_ events: LibboxConnectionEvents?) {}
+    // The Swift importer renames the ObjC writeConnectionEvents: selector to
+    // write(_:), which is the name the generated protocol conformance needs.
+    func write(_ events: LibboxConnectionEvents?) {}
 }
 
 /// Applies network settings on behalf of the engine and hands over the tun fd.
