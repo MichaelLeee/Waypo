@@ -92,6 +92,26 @@ struct ServerImportTests {
     }
 
     @Test
+    func base64SubscriptionBody() {
+        let body = """
+        trojan://pw@192.0.2.7:443#Alpha
+        vless://uuid@192.0.2.8:443?security=tls#Beta
+        """
+        var encoded = Data(body.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+        while encoded.count % 4 != 0 { encoded.append("=") }
+        let servers = ServerImport.parse(encoded)
+        #expect(servers.count == 2)
+        #expect(servers.map(\.name) == ["Alpha", "Beta"])
+    }
+
+    @Test
+    func plainTextIsNotMistakenForSubscription() {
+        #expect(ServerImport.parse("just some notes\nnothing link-like here").isEmpty)
+    }
+
+    @Test
     func urlSafeBase64() {
         // Web-safe alphabet and missing padding must both decode.
         var userInfo = Data("aes-128-gcm:aaa+b/c".utf8).base64EncodedString()

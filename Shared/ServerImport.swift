@@ -4,9 +4,28 @@ import Foundation
 /// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings).
 enum ServerImport {
     static func parse(_ text: String) -> [TunnelServer] {
-        text
+        let lines = text
             .split(whereSeparator: \.isNewline)
             .compactMap { parseLine($0.trimmingCharacters(in: .whitespaces)) }
+        // Subscription endpoints commonly wrap the whole link list in one
+        // base64 blob; fall back to decoding it when no raw links are found.
+        if lines.isEmpty, let decoded = decodeSubscriptionBody(text) {
+            return parse(decoded)
+        }
+        return lines
+    }
+
+    private static func decodeSubscriptionBody(_ text: String) -> String? {
+        let compact = text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined()
+        guard compact.count > 16, !compact.contains("://"),
+              compact.allSatisfy({ $0.isLetter || $0.isNumber || "+/=-_".contains($0) }),
+              let decoded = base64Decode(compact),
+              decoded.contains("://")
+        else { return nil }
+        return decoded
     }
 
     static func parseLine(_ line: String) -> TunnelServer? {
