@@ -538,6 +538,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Waypo;
@@ -564,6 +565,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Waypo/Waypo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Waypo;
@@ -589,6 +591,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -611,6 +614,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaypoMac/WaypoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -632,6 +636,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Tunnel/Info.plist;
@@ -659,6 +664,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Tunnel/Tunnel-iOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Tunnel/Info.plist;
@@ -685,6 +691,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -712,6 +719,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Tunnel/TunnelMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -758,6 +766,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -774,6 +783,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
