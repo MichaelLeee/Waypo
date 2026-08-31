@@ -44,10 +44,13 @@ func runTunnel(unit: Int32, address: String, peerAddress: String, configPath: St
 #endif
 }
 
+#if canImport(Libbox)
 /// Ctrl+C / SIGTERM must reach engine.stop() so the engine closes the
 /// service and removes the routes it added; a bare kill would leave the
-/// system routing table pointed at the dead utun device.
-private var signalSources: [DispatchSourceSignal] = []
+/// system routing table pointed at the dead utun device. The sources are
+/// write-once from the main flow and only read by dispatch, so unsynchronized
+/// access is safe here.
+nonisolated(unsafe) private var signalSources: [DispatchSourceSignal] = []
 
 private func installSignalHandlers(engine: LibboxCoreEngine) {
     signal(SIGINT, SIG_IGN)
@@ -65,3 +68,4 @@ private func installSignalHandlers(engine: LibboxCoreEngine) {
         signalSources.append(source)
     }
 }
+#endif
