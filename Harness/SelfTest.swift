@@ -180,11 +180,14 @@ private func performSelfTest(unit: Int32, address: String, peerAddress: String) 
     if dnsQueries.count != 1 {
         failures.append("dns responder received \(dnsQueries.count) of 1 queries from the engine")
     } else {
-        // The engine may re-encode the question with mixed-case letters
-        // (0x20 randomization); names are case-insensitive on the wire.
-        let receivedName = String(decoding: dnsQueries[0], as: UTF8.self).lowercased()
-        print("dns query bytes: \(dnsQueries[0].map { String(format: "%02x", $0) }.joined())")
-        if !receivedName.contains("self-test.internal") {
+        // On the wire the question is label-encoded (length byte + label),
+        // so "self-test.internal" appears as 09"self-test" 08"internal" 00
+        // with no literal dot between labels.
+        var encodedName = Data([UInt8("self-test".count)])
+        encodedName.append(contentsOf: "self-test".utf8)
+        encodedName.append(UInt8("internal".count))
+        encodedName.append(contentsOf: "internal".utf8)
+        if dnsQueries[0].range(of: encodedName) == nil {
             failures.append("engine dns query does not carry the test name")
         }
     }
