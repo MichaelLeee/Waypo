@@ -7,8 +7,13 @@ import Observation
 @Observable
 final class TunnelController {
     private(set) var status: NEVPNStatus = .invalid {
-        didSet { updateStatsPolling() }
+        didSet {
+            connectedSince = status == .connected ? manager?.connection.startDate ?? Date() : nil
+            updateStatsPolling()
+        }
     }
+    private(set) var connectedSince: Date?
+    private(set) var isOnDemandEnabled = false
     private(set) var traffic: CoreStats?
     private(set) var lastError: String?
     private(set) var latencies: [TunnelServer.ID: Double] = [:]
@@ -69,6 +74,7 @@ final class TunnelController {
             let manager = managers.first { $0.localizedDescription == Self.profileTitle }
             self.manager = manager
             status = manager?.connection.status ?? .invalid
+            isOnDemandEnabled = manager?.protocolConfiguration?.onDemandRules?.isEmpty == false
             observeStatus(of: manager)
         } catch {
             lastError = error.localizedDescription
@@ -89,6 +95,32 @@ final class TunnelController {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Connect On Demand keeps the tunnel up across app restarts, network
+    /// switches, and reboots: a single always-connect on-demand rule makes
+    /// the system bring the tunnel back whenever it is down.
+    func setOnDemand(_ enabled: Bool) async {
+        isOnDemandEnabled = enabled
+        do {
+            let manager = try await loadOrCreateManager()
+            let proto = manager.protocolConfiguration as? NETunnelProviderProtocol
+            proto?.onDemandRules = enabled ? [NEOnDemandRuleConnect()] : []
+            try await manager.saveToPreferences()
+            try await manager.loadFromPreferences()
+            isOnDemandEnabled = enabled
+            status = manager.connection.status
+            lastError = nil
+        } catch {
+            isOnDemandEnabled = !enabled
+            lastError = error.localizedDescription
+        }
+    }
+
+    var uptimeLabel: String? {
+        guard let connectedSince else { return nil }
+        return Duration.seconds(Date().timeIntervalSince(connectedSince))
+            .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 2))
     }
 
     // MARK: - Server management

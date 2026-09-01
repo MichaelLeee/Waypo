@@ -20,11 +20,26 @@ struct ConnectionStatusRow: View {
                 .disabled(controller.status == .disconnecting)
             }
             if let traffic = controller.traffic {
-                Text("\(byteCount(traffic.bytesOut)) up · \(byteCount(traffic.bytesIn)) down · \(traffic.activeConnections) active")
+                Text(caption(for: traffic))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            if controller.status == .connected {
+                Toggle("Connect On Demand", isOn: Binding(
+                    get: { controller.isOnDemandEnabled },
+                    set: { enabled in Task { await controller.setOnDemand(enabled) } }
+                ))
+                .font(.caption)
+            }
         }
+    }
+
+    private func caption(for traffic: CoreStats) -> String {
+        var parts = ["\(byteCount(traffic.bytesOut)) up", "\(byteCount(traffic.bytesIn)) down", "\(traffic.activeConnections) active"]
+        if let uptime = controller.uptimeLabel {
+            parts.append(uptime)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var statusColor: Color {
@@ -64,10 +79,19 @@ struct ConnectionCard: View {
                     Label(byteCount(traffic.bytesOut), systemImage: "arrow.up")
                     Label(byteCount(traffic.bytesIn), systemImage: "arrow.down")
                     Label("\(traffic.activeConnections)", systemImage: "link")
+                    if let uptime = controller.uptimeLabel {
+                        Label(uptime, systemImage: "clock")
+                    }
                 }
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
+
+            Toggle("Connect On Demand", isOn: Binding(
+                get: { controller.isOnDemandEnabled },
+                set: { enabled in Task { await controller.setOnDemand(enabled) } }
+            ))
+            .disabled(controller.status == .invalid)
 
             Button(action: { Task { await controller.toggle() } }) {
                 Image(systemName: controller.isActive ? "stop.fill" : "play.fill")
