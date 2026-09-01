@@ -8,7 +8,13 @@ import Observation
 final class TunnelController {
     private(set) var status: NEVPNStatus = .invalid {
         didSet {
-            connectedSince = status == .connected ? manager?.connection.startDate ?? Date() : nil
+            // Set on the transition; the connection object exposes no start
+            // date, so reconnects inside a running session restart the clock.
+            if status == .connected, connectedSince == nil {
+                connectedSince = Date()
+            } else if status != .connected {
+                connectedSince = nil
+            }
             updateStatsPolling()
         }
     }
