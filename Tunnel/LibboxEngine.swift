@@ -736,6 +736,14 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
 
     func includeAllNetworks() -> Bool { false }
 
+    // Auto-redirect is a newer engine feature this app does not enable;
+    // returning false keeps the engine managing routes through the tun fd.
+    func usePlatformAutoRedirect() -> Bool { false }
+
+    func createAutoRedirect(_ options: Data?, handler: (any LibboxAutoRedirectHandlerProtocol)?) throws -> any LibboxAutoRedirectSessionProtocol {
+        throw NSError(domain: "Waypo", code: 3, userInfo: [NSLocalizedDescriptionKey: "auto redirect is not supported"])
+    }
+
     func useProcFS() -> Bool { false }
 
     func writeLog(_ message: String?) {
