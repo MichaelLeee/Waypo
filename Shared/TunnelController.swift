@@ -80,7 +80,7 @@ final class TunnelController {
             let manager = managers.first { $0.localizedDescription == Self.profileTitle }
             self.manager = manager
             status = manager?.connection.status ?? .invalid
-            isOnDemandEnabled = manager?.protocolConfiguration?.onDemandRules?.isEmpty == false
+            isOnDemandEnabled = manager?.onDemandRules?.isEmpty == false
             observeStatus(of: manager)
         } catch {
             lastError = error.localizedDescription
@@ -110,8 +110,9 @@ final class TunnelController {
         isOnDemandEnabled = enabled
         do {
             let manager = try await loadOrCreateManager()
-            let proto = manager.protocolConfiguration as? NETunnelProviderProtocol
-            proto?.onDemandRules = enabled ? [NEOnDemandRuleConnect()] : []
+            // On-demand state lives on the manager, not the protocol.
+            manager.onDemandRules = enabled ? [NEOnDemandRuleConnect()] : []
+            manager.isOnDemandEnabled = enabled
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
             isOnDemandEnabled = enabled
