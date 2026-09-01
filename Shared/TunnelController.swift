@@ -59,6 +59,11 @@ final class TunnelController {
 
     func refresh() async {
         reloadProfiles()
+        // Ensure the harness CLI's config mirror exists even if the user
+        // never edited anything since the profile feature landed.
+        if activeProfile != nil {
+            persist()
+        }
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
             let manager = managers.first { $0.localizedDescription == Self.profileTitle }
