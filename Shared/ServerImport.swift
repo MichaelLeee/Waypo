@@ -87,9 +87,9 @@ enum ServerImport {
             credentials: decodedUser(url),
             useTLS: true,
             serverName: queryValue("sni", in: url),
-            allowInsecure: insecure,
             obfs: rawObfs?.lowercased() == "none" ? nil : rawObfs,
-            obfsPassword: queryValue("obfs-password", in: url) ?? queryValue("obfsPassword", in: url)
+            obfsPassword: queryValue("obfs-password", in: url) ?? queryValue("obfsPassword", in: url),
+            allowInsecure: insecure
         )
     }
 
