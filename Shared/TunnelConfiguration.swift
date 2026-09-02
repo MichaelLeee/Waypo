@@ -33,11 +33,18 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     var obfsPassword: String?
     /// Skips certificate verification; servers with self-signed certs need it.
     var allowInsecure: Bool = false
+    /// User identifier for transports that pair one with a password (TUIC).
+    var uuid: String?
+    /// Comma-separated TLS ALPN list.
+    var alpn: String?
+    /// QUIC congestion controller name, e.g. "bbr" (TUIC).
+    var congestionControl: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, transport, credentials, cipher, useTLS, serverName
         case network, wsPath, wsHost, serviceName, flow, realityPublicKey, realityShortID
         case obfs, obfsPassword, allowInsecure
+        case uuid, alpn, congestionControl
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
@@ -46,7 +53,8 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
          network: String? = nil, wsPath: String? = nil, wsHost: String? = nil,
          serviceName: String? = nil, flow: String? = nil,
          realityPublicKey: String? = nil, realityShortID: String? = nil,
-         obfs: String? = nil, obfsPassword: String? = nil, allowInsecure: Bool = false) {
+         obfs: String? = nil, obfsPassword: String? = nil, allowInsecure: Bool = false,
+         uuid: String? = nil, alpn: String? = nil, congestionControl: String? = nil) {
         self.id = id
         self.name = name
         self.host = host
@@ -66,6 +74,9 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         self.obfs = obfs
         self.obfsPassword = obfsPassword
         self.allowInsecure = allowInsecure
+        self.uuid = uuid
+        self.alpn = alpn
+        self.congestionControl = congestionControl
     }
 
     init(from decoder: Decoder) throws {
@@ -89,6 +100,9 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         obfs = try container.decodeIfPresent(String.self, forKey: .obfs)
         obfsPassword = try container.decodeIfPresent(String.self, forKey: .obfsPassword)
         allowInsecure = try container.decodeIfPresent(Bool.self, forKey: .allowInsecure) ?? false
+        uuid = try container.decodeIfPresent(String.self, forKey: .uuid)
+        alpn = try container.decodeIfPresent(String.self, forKey: .alpn)
+        congestionControl = try container.decodeIfPresent(String.self, forKey: .congestionControl)
     }
 }
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// Parses share-link entries into configuration values.
 /// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings),
-/// hysteria2 (and its hy2 alias).
+/// hysteria2 (and its hy2 alias), tuic.
 enum ServerImport {
     static func parse(_ text: String) -> [TunnelServer] {
         let lines = text
@@ -36,6 +36,7 @@ enum ServerImport {
         case "vless": return parseVLESS(url)
         case "ss": return parseShadowsocks(url, rawLine: line)
         case "hysteria2", "hy2": return parseHysteria2(url)
+        case "tuic": return parseTUIC(url)
         default: return nil
         }
     }
@@ -59,6 +60,11 @@ enum ServerImport {
     private static func decodedUser(_ url: URL) -> String? {
         guard let user = url.user else { return nil }
         return user.removingPercentEncoding ?? user
+    }
+
+    private static func decodedPassword(_ url: URL) -> String? {
+        guard let password = url.password else { return nil }
+        return password.removingPercentEncoding ?? password
     }
 
     private static func base64Decode(_ value: String) -> String? {
@@ -89,6 +95,27 @@ enum ServerImport {
             serverName: queryValue("sni", in: url),
             obfs: rawObfs?.lowercased() == "none" ? nil : rawObfs,
             obfsPassword: queryValue("obfs-password", in: url) ?? queryValue("obfsPassword", in: url),
+            allowInsecure: insecure
+        )
+    }
+
+    /// TUIC links: tuic://uuid:password@host:port/?sni=...&congestion_control=bbr&alpn=h3&allow_insecure=1#name
+    private static func parseTUIC(_ url: URL) -> TunnelServer? {
+        guard let host = url.host, !host.isEmpty else { return nil }
+        let insecure = ["1", "true"].contains(
+            (queryValue("allow_insecure", in: url) ?? queryValue("insecure", in: url))?.lowercased())
+        return TunnelServer(
+            name: displayName(url, fallback: host),
+            host: host,
+            port: url.port ?? 443,
+            transport: "tuic",
+            credentials: decodedPassword(url),
+            useTLS: true,
+            serverName: queryValue("sni", in: url),
+            uuid: decodedUser(url),
+            alpn: queryValue("alpn", in: url),
+            congestionControl: queryValue("congestion_control", in: url)
+                ?? queryValue("congestioncontrol", in: url),
             allowInsecure: insecure
         )
     }

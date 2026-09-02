@@ -189,4 +189,35 @@ extension ServerImportTests {
         let server = ServerImport.parseLine("hysteria2://pw@192.0.2.10?obfs=none#Plain")
         #expect(server?.obfs == nil)
     }
+
+    @Test
+    func tuicLink() {
+        let server = ServerImport.parseLine(
+            "tuic://11111111-2222-3333-4444-555555555555:q%21w2e3@t.example.com:8443/?sni=tls.example.com&congestion_control=bbr&alpn=h3&udp_relay_mode=native#TUIC%20Node"
+        )
+        #expect(server?.name == "TUIC Node")
+        #expect(server?.host == "t.example.com")
+        #expect(server?.port == 8443)
+        #expect(server?.transport == "tuic")
+        #expect(server?.uuid == "11111111-2222-3333-4444-555555555555")
+        #expect(server?.credentials == "q!w2e3")
+        #expect(server?.useTLS == true)
+        #expect(server?.serverName == "tls.example.com")
+        #expect(server?.congestionControl == "bbr")
+        #expect(server?.alpn == "h3")
+        #expect(server?.allowInsecure == false)
+    }
+
+    @Test
+    func tuicDefaultsAndInsecure() {
+        let server = ServerImport.parseLine(
+            "tuic://uuid-goes-here:pw@192.0.2.11?allow_insecure=1#Loose"
+        )
+        #expect(server?.port == 443)
+        #expect(server?.uuid == "uuid-goes-here")
+        #expect(server?.credentials == "pw")
+        #expect(server?.allowInsecure == true)
+        #expect(server?.congestionControl == nil)
+        #expect(server?.alpn == nil)
+    }
 }

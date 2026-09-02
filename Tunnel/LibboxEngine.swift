@@ -192,15 +192,26 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
                             "password": server.obfsPassword ?? "",
                         ]
                     }
+                case "tuic":
+                    outbound["uuid"] = server.uuid ?? server.credentials ?? ""
+                    outbound["password"] = server.credentials ?? ""
+                    if let congestion = server.congestionControl, !congestion.isEmpty {
+                        outbound["congestion_control"] = congestion
+                    }
                 default:
                     break
                 }
-                // Hysteria2 rides on TLS by definition; nothing else about the
-                // outbound is negotiable without it.
-                if server.useTLS || server.transport == "hysteria2" {
+                // These transports ride on TLS by definition; nothing else
+                // about the outbound is negotiable without it.
+                if server.useTLS || server.transport == "hysteria2" || server.transport == "tuic" {
                     var tls: [String: Any] = ["enabled": true, "server_name": server.serverName ?? server.host]
                     if server.allowInsecure {
                         tls["insecure"] = true
+                    }
+                    if let alpn = server.alpn, !alpn.isEmpty {
+                        tls["alpn"] = alpn.split(separator: ",").map {
+                            $0.trimmingCharacters(in: .whitespaces)
+                        }
                     }
                     if let publicKey = server.realityPublicKey, !publicKey.isEmpty {
                         tls["reality"] = [

@@ -34,6 +34,7 @@ struct ServerEditorView: View {
                         Text("VLESS").tag("vless")
                         Text("Shadowsocks").tag("shadowsocks")
                         Text("Hysteria2").tag("hysteria2")
+                        Text("TUIC").tag("tuic")
                     }
                     if draft.transport == "shadowsocks" {
                         TextField("Cipher", text: optionalString($draft.cipher))
@@ -53,6 +54,14 @@ struct ServerEditorView: View {
                         if !obfsBinding.wrappedValue.isEmpty {
                             TextField("Obfuscation Password", text: optionalString($draft.obfsPassword))
                                 .autocorrectionDisabled()
+                        }
+                    }
+                    if draft.transport == "tuic" {
+                        TextField("UUID", text: optionalString($draft.uuid))
+                            .autocorrectionDisabled()
+                        Picker("Congestion Control", selection: congestionBinding) {
+                            Text("BBR").tag("bbr")
+                            Text("Cubic").tag("cubic")
                         }
                     }
                     if draft.transport == "trojan" || draft.transport == "vless" {
@@ -80,9 +89,11 @@ struct ServerEditorView: View {
 
                 Section("TLS") {
                     Toggle("Use TLS", isOn: $draft.useTLS)
-                        .disabled(draft.transport == "hysteria2")
-                    if draft.useTLS || draft.transport == "hysteria2" {
+                        .disabled(draft.transport == "hysteria2" || draft.transport == "tuic")
+                    if draft.useTLS || draft.transport == "hysteria2" || draft.transport == "tuic" {
                         TextField("Server Name", text: optionalString($draft.serverName))
+                            .autocorrectionDisabled()
+                        TextField("ALPN", text: optionalString($draft.alpn))
                             .autocorrectionDisabled()
                         Toggle("Allow Insecure", isOn: $draft.allowInsecure)
                         TextField("Reality Public Key", text: optionalString($draft.realityPublicKey))
@@ -95,8 +106,8 @@ struct ServerEditorView: View {
                 }
             }
             .onChange(of: draft.transport) { _, newValue in
-                // This transport cannot exist without TLS.
-                if newValue == "hysteria2" {
+                // These transports cannot exist without TLS.
+                if newValue == "hysteria2" || newValue == "tuic" {
                     draft.useTLS = true
                 }
             }
@@ -153,7 +164,15 @@ struct ServerEditorView: View {
         )
     }
 
+    private var congestionBinding: Binding<String> {
+        Binding(
+            get: { draft.congestionControl ?? "bbr" },
+            set: { draft.congestionControl = $0 }
+        )
+    }
+
     private var credentialsTitle: String {
-        draft.transport == "trojan" || draft.transport == "hysteria2" ? "Password" : "Credentials"
+        draft.transport == "trojan" || draft.transport == "hysteria2" || draft.transport == "tuic"
+            ? "Password" : "Credentials"
     }
 }
