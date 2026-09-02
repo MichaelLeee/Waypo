@@ -39,12 +39,15 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     var alpn: String?
     /// QUIC congestion controller name, e.g. "bbr" (TUIC).
     var congestionControl: String?
+    /// Legacy VMess alteration count; modern servers use 0.
+    var alterId: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, transport, credentials, cipher, useTLS, serverName
         case network, wsPath, wsHost, serviceName, flow, realityPublicKey, realityShortID
         case obfs, obfsPassword, allowInsecure
         case uuid, alpn, congestionControl
+        case alterId
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
@@ -54,7 +57,8 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
          serviceName: String? = nil, flow: String? = nil,
          realityPublicKey: String? = nil, realityShortID: String? = nil,
          obfs: String? = nil, obfsPassword: String? = nil, allowInsecure: Bool = false,
-         uuid: String? = nil, alpn: String? = nil, congestionControl: String? = nil) {
+         uuid: String? = nil, alpn: String? = nil, congestionControl: String? = nil,
+         alterId: Int? = nil) {
         self.id = id
         self.name = name
         self.host = host
@@ -77,6 +81,7 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         self.uuid = uuid
         self.alpn = alpn
         self.congestionControl = congestionControl
+        self.alterId = alterId
     }
 
     init(from decoder: Decoder) throws {
@@ -103,6 +108,7 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         uuid = try container.decodeIfPresent(String.self, forKey: .uuid)
         alpn = try container.decodeIfPresent(String.self, forKey: .alpn)
         congestionControl = try container.decodeIfPresent(String.self, forKey: .congestionControl)
+        alterId = try container.decodeIfPresent(Int.self, forKey: .alterId)
     }
 }
 

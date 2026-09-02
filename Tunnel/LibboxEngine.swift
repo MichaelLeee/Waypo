@@ -181,6 +181,10 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
                     if let flow = server.flow, !flow.isEmpty {
                         outbound["flow"] = flow
                     }
+                case "vmess":
+                    outbound["uuid"] = server.credentials ?? ""
+                    outbound["alter_id"] = server.alterId ?? 0
+                    outbound["security"] = server.cipher ?? "auto"
                 case "shadowsocks":
                     outbound["password"] = server.credentials ?? ""
                     outbound["method"] = server.cipher ?? "aes-128-gcm"

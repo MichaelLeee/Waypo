@@ -2,7 +2,7 @@ import Foundation
 
 /// Parses share-link entries into configuration values.
 /// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings),
-/// hysteria2 (and its hy2 alias), tuic.
+/// hysteria2 (and its hy2 alias), tuic, vmess (base64-JSON body).
 enum ServerImport {
     static func parse(_ text: String) -> [TunnelServer] {
         let lines = text
@@ -30,6 +30,8 @@ enum ServerImport {
     }
 
     static func parseLine(_ line: String) -> TunnelServer? {
+        // The body is base64 JSON, not a URL — decode it before URL parsing.
+        if line.lowercased().hasPrefix("vmess://") { return parseVMess(line) }
         guard let url = URL(string: line), let scheme = url.scheme?.lowercased() else { return nil }
         switch scheme {
         case "trojan": return parseTrojan(url)
@@ -112,12 +114,63 @@ enum ServerImport {
             credentials: decodedPassword(url),
             useTLS: true,
             serverName: queryValue("sni", in: url),
+            allowInsecure: insecure,
+            uuid: decodedUser(url),
             alpn: queryValue("alpn", in: url),
             congestionControl: queryValue("congestion_control", in: url)
-                ?? queryValue("congestioncontrol", in: url),
-            allowInsecure: insecure,
-            uuid: decodedUser(url)
+                ?? queryValue("congestioncontrol", in: url)
         )
+    }
+
+    /// VMess links are not URLs: vmess://<base64 of a JSON object> with the
+    /// fields add/port/id/aid/scy/net/path/host/tls/sni/ps. Numeric fields
+    /// appear as either strings or numbers depending on the generator.
+    private static func parseVMess(_ line: String) -> TunnelServer? {
+        guard let decoded = base64Decode(String(line.dropFirst("vmess://".count))),
+              let data = decoded.data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return nil }
+        guard let host = stringField(json, "add"), !host.isEmpty,
+              let id = stringField(json, "id"), !id.isEmpty
+        else { return nil }
+
+        let overlay: String?
+        switch stringField(json, "net")?.lowercased() {
+        case "ws": overlay = "ws"
+        case "grpc": overlay = "grpc"
+        default: overlay = nil
+        }
+        let tlsRaw = stringField(json, "tls")?.lowercased()
+        let path = stringField(json, "path")
+        return TunnelServer(
+            name: stringField(json, "ps") ?? host,
+            host: host,
+            port: intField(json, "port") ?? 443,
+            transport: "vmess",
+            credentials: id,
+            cipher: stringField(json, "scy") ?? "auto",
+            useTLS: tlsRaw == "tls" || tlsRaw == "reality",
+            serverName: stringField(json, "sni"),
+            network: overlay,
+            wsPath: overlay == "ws" ? path : nil,
+            wsHost: overlay == "ws" ? stringField(json, "host") : nil,
+            serviceName: overlay == "grpc" ? path : nil,
+            realityPublicKey: tlsRaw == "reality" ? stringField(json, "pbk") : nil,
+            realityShortID: tlsRaw == "reality" ? stringField(json, "sid") : nil,
+            alterId: intField(json, "aid") ?? 0
+        )
+    }
+
+    private static func stringField(_ json: [String: Any], _ key: String) -> String? {
+        if let value = json[key] as? String { return value }
+        if let number = json[key] as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func intField(_ json: [String: Any], _ key: String) -> Int? {
+        if let number = json[key] as? NSNumber { return number.intValue }
+        if let text = json[key] as? String { return Int(text) }
+        return nil
     }
 
     private static func parseTrojan(_ url: URL) -> TunnelServer? {

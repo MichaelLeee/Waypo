@@ -35,11 +35,17 @@ struct ServerEditorView: View {
                         Text("Shadowsocks").tag("shadowsocks")
                         Text("Hysteria2").tag("hysteria2")
                         Text("TUIC").tag("tuic")
+                        Text("VMess").tag("vmess")
                     }
                     if draft.transport == "shadowsocks" {
                         TextField("Cipher", text: optionalString($draft.cipher))
                             .autocorrectionDisabled()
 
+                    }
+                    if draft.transport == "vmess" {
+                        TextField("Encryption", text: optionalString($draft.cipher))
+                            .autocorrectionDisabled()
+                        TextField("Alter ID", value: optionalInt($draft.alterId), format: .number.grouping(.never))
                     }
                     if draft.transport != "direct" {
                         TextField(credentialsTitle, text: optionalString($draft.credentials))
@@ -147,6 +153,13 @@ struct ServerEditorView: View {
         Binding(
             get: { binding.wrappedValue ?? "" },
             set: { binding.wrappedValue = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private func optionalInt(_ binding: Binding<Int?>) -> Binding<Int> {
+        Binding(
+            get: { binding.wrappedValue ?? 0 },
+            set: { binding.wrappedValue = $0 == 0 ? nil : $0 }
         )
     }
 

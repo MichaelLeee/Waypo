@@ -220,4 +220,46 @@ extension ServerImportTests {
         #expect(server?.congestionControl == nil)
         #expect(server?.alpn == nil)
     }
+
+    @Test
+    func vmessLinkWithWebSocket() {
+        let body: [String: String] = [
+            "v": "2", "ps": "VMess Node", "add": "v.example.com", "port": "443",
+            "id": "11111111-2222-3333-4444-555555555555", "aid": "0", "scy": "auto",
+            "net": "ws", "type": "none", "host": "cdn.example.com", "path": "/ray",
+            "tls": "tls", "sni": "v.example.com",
+        ]
+        let encoded = String(data: try! JSONSerialization.data(withJSONObject: body), encoding: .utf8)!
+            .data(using: .utf8)!.base64EncodedString()
+        let server = ServerImport.parseLine("vmess://\(encoded)")
+        #expect(server?.name == "VMess Node")
+        #expect(server?.host == "v.example.com")
+        #expect(server?.port == 443)
+        #expect(server?.transport == "vmess")
+        #expect(server?.credentials == "11111111-2222-3333-4444-555555555555")
+        #expect(server?.cipher == "auto")
+        #expect(server?.alterId == 0)
+        #expect(server?.useTLS == true)
+        #expect(server?.serverName == "v.example.com")
+        #expect(server?.network == "ws")
+        #expect(server?.wsPath == "/ray")
+        #expect(server?.wsHost == "cdn.example.com")
+    }
+
+    @Test
+    func vmessNumericFieldsAndPlainTCP() {
+        let body: [String: Any] = [
+            "ps": "Plain", "add": "192.0.2.12", "port": 10086,
+            "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "aid": 64,
+            "net": "tcp",
+        ]
+        let encoded = String(data: try! JSONSerialization.data(withJSONObject: body), encoding: .utf8)!
+            .data(using: .utf8)!.base64EncodedString()
+        let server = ServerImport.parseLine("vmess://\(encoded)")
+        #expect(server?.port == 10086)
+        #expect(server?.alterId == 64)
+        #expect(server?.cipher == "auto")
+        #expect(server?.useTLS == false)
+        #expect(server?.network == nil)
+    }
 }
