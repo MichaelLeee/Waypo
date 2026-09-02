@@ -33,6 +33,7 @@ struct ServerEditorView: View {
                         Text("Trojan").tag("trojan")
                         Text("VLESS").tag("vless")
                         Text("Shadowsocks").tag("shadowsocks")
+                        Text("Hysteria2").tag("hysteria2")
                     }
                     if draft.transport == "shadowsocks" {
                         TextField("Cipher", text: optionalString($draft.cipher))
@@ -40,9 +41,19 @@ struct ServerEditorView: View {
 
                     }
                     if draft.transport != "direct" {
-                        TextField("Credentials", text: optionalString($draft.credentials))
+                        TextField(credentialsTitle, text: optionalString($draft.credentials))
                             .autocorrectionDisabled()
 
+                    }
+                    if draft.transport == "hysteria2" {
+                        Picker("Obfuscation", selection: obfsBinding) {
+                            Text("None").tag("")
+                            Text("Salamander").tag("salamander")
+                        }
+                        if !obfsBinding.wrappedValue.isEmpty {
+                            TextField("Obfuscation Password", text: optionalString($draft.obfsPassword))
+                                .autocorrectionDisabled()
+                        }
                     }
                     if draft.transport == "trojan" || draft.transport == "vless" {
                         Picker("Network", selection: networkBinding) {
@@ -69,9 +80,11 @@ struct ServerEditorView: View {
 
                 Section("TLS") {
                     Toggle("Use TLS", isOn: $draft.useTLS)
-                    if draft.useTLS {
+                        .disabled(draft.transport == "hysteria2")
+                    if draft.useTLS || draft.transport == "hysteria2" {
                         TextField("Server Name", text: optionalString($draft.serverName))
                             .autocorrectionDisabled()
+                        Toggle("Allow Insecure", isOn: $draft.allowInsecure)
                         TextField("Reality Public Key", text: optionalString($draft.realityPublicKey))
                             .autocorrectionDisabled()
                         if !(draft.realityPublicKey ?? "").isEmpty {
@@ -79,6 +92,12 @@ struct ServerEditorView: View {
                                 .autocorrectionDisabled()
                         }
                     }
+                }
+            }
+            .onChange(of: draft.transport) { _, newValue in
+                // This transport cannot exist without TLS.
+                if newValue == "hysteria2" {
+                    draft.useTLS = true
                 }
             }
             .navigationTitle(mode.title)
@@ -125,5 +144,16 @@ struct ServerEditorView: View {
             get: { draft.network ?? "tcp" },
             set: { draft.network = $0 == "tcp" ? nil : $0 }
         )
+    }
+
+    private var obfsBinding: Binding<String> {
+        Binding(
+            get: { draft.obfs ?? "" },
+            set: { draft.obfs = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private var credentialsTitle: String {
+        draft.transport == "trojan" || draft.transport == "hysteria2" ? "Password" : "Credentials"
     }
 }

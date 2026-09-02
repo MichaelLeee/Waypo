@@ -184,11 +184,24 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
                 case "shadowsocks":
                     outbound["password"] = server.credentials ?? ""
                     outbound["method"] = server.cipher ?? "aes-128-gcm"
+                case "hysteria2":
+                    outbound["password"] = server.credentials ?? ""
+                    if let obfs = server.obfs, !obfs.isEmpty {
+                        outbound["obfs"] = [
+                            "type": obfs,
+                            "password": server.obfsPassword ?? "",
+                        ]
+                    }
                 default:
                     break
                 }
-                if server.useTLS {
+                // Hysteria2 rides on TLS by definition; nothing else about the
+                // outbound is negotiable without it.
+                if server.useTLS || server.transport == "hysteria2" {
                     var tls: [String: Any] = ["enabled": true, "server_name": server.serverName ?? server.host]
+                    if server.allowInsecure {
+                        tls["insecure"] = true
+                    }
                     if let publicKey = server.realityPublicKey, !publicKey.isEmpty {
                         tls["reality"] = [
                             "enabled": true,

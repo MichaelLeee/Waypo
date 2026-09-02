@@ -1,7 +1,8 @@
 import Foundation
 
 /// Parses share-link entries into configuration values.
-/// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings).
+/// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings),
+/// hysteria2 (and its hy2 alias).
 enum ServerImport {
     static func parse(_ text: String) -> [TunnelServer] {
         let lines = text
@@ -34,6 +35,7 @@ enum ServerImport {
         case "trojan": return parseTrojan(url)
         case "vless": return parseVLESS(url)
         case "ss": return parseShadowsocks(url, rawLine: line)
+        case "hysteria2", "hy2": return parseHysteria2(url)
         default: return nil
         }
     }
@@ -70,6 +72,26 @@ enum ServerImport {
     }
 
     // MARK: - Per-scheme parsers
+
+    /// Hysteria2 links: hysteria2://password@host:port/?sni=...&obfs=salamander&obfs-password=...&insecure=1#name
+    /// (the hy2:// scheme is an accepted alias).
+    private static func parseHysteria2(_ url: URL) -> TunnelServer? {
+        guard let host = url.host, !host.isEmpty else { return nil }
+        let insecure = ["1", "true"].contains(queryValue("insecure", in: url)?.lowercased())
+        let rawObfs = queryValue("obfs", in: url)
+        return TunnelServer(
+            name: displayName(url, fallback: host),
+            host: host,
+            port: url.port ?? 443,
+            transport: "hysteria2",
+            credentials: decodedUser(url),
+            useTLS: true,
+            serverName: queryValue("sni", in: url),
+            allowInsecure: insecure,
+            obfs: rawObfs?.lowercased() == "none" ? nil : rawObfs,
+            obfsPassword: queryValue("obfs-password", in: url) ?? queryValue("obfsPassword", in: url)
+        )
+    }
 
     private static func parseTrojan(_ url: URL) -> TunnelServer? {
         guard let host = url.host, !host.isEmpty else { return nil }

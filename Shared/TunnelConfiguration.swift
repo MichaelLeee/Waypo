@@ -28,10 +28,16 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     /// Reality public key; its presence switches TLS into Reality mode.
     var realityPublicKey: String?
     var realityShortID: String?
+    /// Obfuscation layer name, e.g. "salamander" (Hysteria2).
+    var obfs: String?
+    var obfsPassword: String?
+    /// Skips certificate verification; servers with self-signed certs need it.
+    var allowInsecure: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, transport, credentials, cipher, useTLS, serverName
         case network, wsPath, wsHost, serviceName, flow, realityPublicKey, realityShortID
+        case obfs, obfsPassword, allowInsecure
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
@@ -39,7 +45,8 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
          useTLS: Bool = false, serverName: String? = nil,
          network: String? = nil, wsPath: String? = nil, wsHost: String? = nil,
          serviceName: String? = nil, flow: String? = nil,
-         realityPublicKey: String? = nil, realityShortID: String? = nil) {
+         realityPublicKey: String? = nil, realityShortID: String? = nil,
+         obfs: String? = nil, obfsPassword: String? = nil, allowInsecure: Bool = false) {
         self.id = id
         self.name = name
         self.host = host
@@ -56,6 +63,9 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         self.flow = flow
         self.realityPublicKey = realityPublicKey
         self.realityShortID = realityShortID
+        self.obfs = obfs
+        self.obfsPassword = obfsPassword
+        self.allowInsecure = allowInsecure
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +86,9 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         flow = try container.decodeIfPresent(String.self, forKey: .flow)
         realityPublicKey = try container.decodeIfPresent(String.self, forKey: .realityPublicKey)
         realityShortID = try container.decodeIfPresent(String.self, forKey: .realityShortID)
+        obfs = try container.decodeIfPresent(String.self, forKey: .obfs)
+        obfsPassword = try container.decodeIfPresent(String.self, forKey: .obfsPassword)
+        allowInsecure = try container.decodeIfPresent(Bool.self, forKey: .allowInsecure) ?? false
     }
 }
 

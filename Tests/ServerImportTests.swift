@@ -155,3 +155,38 @@ struct ServerImportTests {
         #expect(server?.credentials == "aaa+b/c")
     }
 }
+
+extension ServerImportTests {
+    @Test
+    func hysteria2Link() {
+        let server = ServerImport.parseLine(
+            "hysteria2://s3cret@h.example.com:8443/?sni=tls.example.com&obfs=salamander&obfs-password=obSecret#Hy2%20Node"
+        )
+        #expect(server?.name == "Hy2 Node")
+        #expect(server?.host == "h.example.com")
+        #expect(server?.port == 8443)
+        #expect(server?.transport == "hysteria2")
+        #expect(server?.credentials == "s3cret")
+        #expect(server?.useTLS == true)
+        #expect(server?.serverName == "tls.example.com")
+        #expect(server?.obfs == "salamander")
+        #expect(server?.obfsPassword == "obSecret")
+        #expect(server?.allowInsecure == false)
+    }
+
+    @Test
+    func hysteria2AliasAndInsecure() {
+        let server = ServerImport.parseLine("hy2://pw@192.0.2.9?insecure=1#Loose")
+        #expect(server?.transport == "hysteria2")
+        #expect(server?.port == 443)
+        #expect(server?.credentials == "pw")
+        #expect(server?.allowInsecure == true)
+        #expect(server?.obfs == nil)
+    }
+
+    @Test
+    func hysteria2NoneObfsIsCleared() {
+        let server = ServerImport.parseLine("hysteria2://pw@192.0.2.10?obfs=none#Plain")
+        #expect(server?.obfs == nil)
+    }
+}
