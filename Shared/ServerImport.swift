@@ -112,11 +112,11 @@ enum ServerImport {
             credentials: decodedPassword(url),
             useTLS: true,
             serverName: queryValue("sni", in: url),
-            uuid: decodedUser(url),
             alpn: queryValue("alpn", in: url),
             congestionControl: queryValue("congestion_control", in: url)
                 ?? queryValue("congestioncontrol", in: url),
-            allowInsecure: insecure
+            allowInsecure: insecure,
+            uuid: decodedUser(url)
         )
     }
 
