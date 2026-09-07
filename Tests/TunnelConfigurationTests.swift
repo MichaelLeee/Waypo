@@ -204,12 +204,13 @@ struct TunnelConfigurationTests {
         controller.addGroup(group)
         #expect(controller.configuration.groups.count == 1)
 
+        let serverOrderBefore = controller.configuration.servers.map(\.id)
         // Selecting the second member moves it to the front (the persisted
         // preference and next-start default).
         controller.setGroupMember(group: group.id, member: b.id)
         #expect(controller.configuration.groups[0].memberIDs.first == b.id)
-        // The top-level active server is untouched by group selection.
-        #expect(controller.configuration.servers.first?.id == a.id)
+        // The top-level server order is untouched by group selection.
+        #expect(controller.configuration.servers.map(\.id) == serverOrderBefore)
 
         controller.deleteServer(a.id)
         #expect(controller.configuration.groups[0].memberIDs == [b.id])
