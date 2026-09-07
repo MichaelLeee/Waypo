@@ -203,13 +203,17 @@ private struct ResolverEditorView: View {
                         Text("DoQ (QUIC)").tag(DNSResolver.Kind.quic)
                     }
                     TextField(kind == .udp ? "IP address" : "Server name", text: $server)
+#if os(iOS)
                         .textInputAutocapitalization(.never)
+#endif
                         .autocorrectionDisabled()
                     TextField("Port", text: $port)
                         .keyboardType(.numberPad)
                     if kind == .https {
                         TextField("Path", text: $path, prompt: Text("/dns-query"))
-                            .textInputAutocapitalization(.never)
+#if os(iOS)
+                        .textInputAutocapitalization(.never)
+#endif
                             .autocorrectionDisabled()
                     }
                 }
@@ -285,10 +289,14 @@ private struct HostEditorView: View {
             Form {
                 Section {
                     TextField("Domain", text: $domain)
+#if os(iOS)
                         .textInputAutocapitalization(.never)
+#endif
                         .autocorrectionDisabled()
                     TextField("Address", text: $address, prompt: Text("IP address"))
+#if os(iOS)
                         .textInputAutocapitalization(.never)
+#endif
                         .autocorrectionDisabled()
                 }
             }
