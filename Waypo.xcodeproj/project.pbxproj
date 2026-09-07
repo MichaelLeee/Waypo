@@ -590,7 +590,7 @@
 		AA0000000000000000000044 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Core/Libbox.xcframework/macos-arm64";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Core/Libbox.xcframework/macos-arm64_x86_64";
 				OTHER_LDFLAGS = "$(inherited) -framework IOUSBHost -framework SystemConfiguration -framework CoreWLAN -lresolv -lbsm";
 				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_IDENTITY = "-";
@@ -614,7 +614,7 @@
 		AA0000000000000000000045 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Core/Libbox.xcframework/macos-arm64";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Core/Libbox.xcframework/macos-arm64_x86_64";
 				OTHER_LDFLAGS = "$(inherited) -framework IOUSBHost -framework SystemConfiguration -framework CoreWLAN -lresolv -lbsm";
 				CODE_SIGN_ENTITLEMENTS = WaypoMac/WaypoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
