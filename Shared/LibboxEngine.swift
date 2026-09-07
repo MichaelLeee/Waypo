@@ -348,7 +348,7 @@ final class WaypoPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, L
 
     /// System-wide mode: no NetworkExtension and no tun fd — the engine's
     /// inbounds are loopback listeners owned entirely by this process.
-    init() {
+    override init() {
         self.tunnel = nil
         self.tunFileDescriptor = nil
     }
