@@ -208,7 +208,9 @@ private struct ResolverEditorView: View {
 #endif
                         .autocorrectionDisabled()
                     TextField("Port", text: $port)
+#if os(iOS)
                         .keyboardType(.numberPad)
+#endif
                     if kind == .https {
                         TextField("Path", text: $path, prompt: Text("/dns-query"))
 #if os(iOS)
