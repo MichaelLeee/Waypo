@@ -264,7 +264,7 @@ struct RuleEditorView: View {
                     Text("Route sends matching traffic to the chosen target; Direct bypasses everything; Reject blocks it.")
                 }
 
-                Section("Match") {
+                Section {
                     field("Domains, e.g. example.com", text: $domains)
                     field("Suffixes, e.g. example.com", text: $domainSuffixes)
                     field("Keywords", text: $domainKeywords)
@@ -292,6 +292,8 @@ struct RuleEditorView: View {
                         }
                     }
                     Toggle("Invert Match", isOn: $invert)
+                } header: {
+                    Text("Match")
                 } footer: {
                     Text("Values within one field match any; the fields combine. Every listed criterion is a comma-separated list.")
                 }
