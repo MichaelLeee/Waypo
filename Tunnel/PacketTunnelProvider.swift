@@ -136,6 +136,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?(try? JSONEncoder().encode(engineHolder.get()?.currentGroups() ?? []))
                 return
             }
+            if message == "connections" {
+                completionHandler?(try? JSONEncoder().encode(engineHolder.get()?.currentConnections() ?? []))
+                return
+            }
+            if message.hasPrefix("close ") {
+                engineHolder.get()?.closeConnection(id: String(message.dropFirst("close ".count)))
+                completionHandler?(nil)
+                return
+            }
             if message.hasPrefix("select ") {
                 // "select <group> <member>" targets one group; the one-token
                 // legacy form keeps selecting within the top-level selector.

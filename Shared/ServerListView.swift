@@ -10,6 +10,7 @@ struct ServerListView: View {
     @State private var showingImport = false
     @State private var showingLogs = false
     @State private var showingGroups = false
+    @State private var showingConnections = false
     @State private var showingNewProfile = false
     @State private var newProfileName = ""
 #if os(macOS)
@@ -38,6 +39,9 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingGroups) {
             GroupsView(controller: controller)
+        }
+        .sheet(isPresented: $showingConnections) {
+            ConnectionsView(controller: controller)
         }
         .alert("New Profile", isPresented: $showingNewProfile) {
             TextField("Name", text: $newProfileName)
@@ -242,6 +246,11 @@ struct ServerListView: View {
                 showingGroups = true
             } label: {
                 Label("Groups", systemImage: "rectangle.stack")
+            }
+            Button {
+                showingConnections = true
+            } label: {
+                Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
             }
             Button {
                 showingLogs = true

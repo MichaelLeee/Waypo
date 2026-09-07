@@ -24,6 +24,7 @@ final class TunnelController {
     private(set) var lastError: String?
     private(set) var latencies: [TunnelServer.ID: Double] = [:]
     private(set) var groupStates: [PolicyGroupState] = []
+    private(set) var connections: [EngineConnection] = []
     private(set) var isTestingLatency = false
     var configuration: TunnelConfiguration = .default
     private(set) var profiles: [TunnelProfile] = []
@@ -228,6 +229,7 @@ final class TunnelController {
                 while !Task.isCancelled {
                     await self?.pollStats()
                     await self?.pollGroups()
+                    await self?.pollConnections()
                     try? await Task.sleep(for: .seconds(1))
                 }
             }
@@ -236,6 +238,7 @@ final class TunnelController {
             statsTask = nil
             traffic = nil
             groupStates = []
+            connections = []
         }
     }
 
@@ -271,6 +274,30 @@ final class TunnelController {
             return
         }
         groupStates = states
+    }
+
+    private func pollConnections() async {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let response: Data? = await withCheckedContinuation { continuation in
+            do {
+                try session.sendProviderMessage(Data("connections".utf8)) { reply in
+                    continuation.resume(returning: reply)
+                }
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        guard let response,
+              let list = try? JSONDecoder().decode([EngineConnection].self, from: response)
+        else { return }
+        connections = list
+    }
+
+    /// Asks the engine to close one live connection.
+    func closeConnection(_ id: String) {
+        connections.removeAll { $0.id == id }
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        try? session.sendProviderMessage(Data("close \(id)".utf8)) { _ in }
     }
 
     // MARK: - Import

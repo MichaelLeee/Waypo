@@ -84,6 +84,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         options.addCommand(LibboxCommandStatus)
         options.addCommand(LibboxCommandLog)
         options.addCommand(LibboxCommandGroup)
+        options.addCommand(LibboxCommandConnections)
         let bridge = EngineClientBridge(hub: hub, logBuffer: logBuffer)
         clientBridge = bridge
         guard let client = LibboxNewCommandClient(bridge, options) else {
@@ -135,6 +136,20 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         hub.snapshotGroups()
     }
 
+    /// Live connection list folded from the engine's connection stream.
+    func currentConnections() -> [EngineConnection] {
+        hub.snapshotConnections()
+    }
+
+    /// Asks the engine to close one live connection.
+    func closeConnection(id: String) {
+        do {
+            try commandClient?.closeConnection(id)
+        } catch {
+            logger.error("closing connection failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Snapshot of the captured engine log lines, oldest first.
     func recentLogs() -> [String] {
         logBuffer.snapshot()
@@ -163,6 +178,7 @@ final class EngineHub: @unchecked Sendable {
     private var statsStreams: [UUID: AsyncStream<CoreStats>.Continuation] = [:]
     private var latestStats: CoreStats?
     private var latestGroups: [PolicyGroupState] = []
+    private var connectionTracker = ConnectionTracker()
     private var open = true
 
     func events() -> AsyncStream<CoreEvent> {
@@ -226,6 +242,19 @@ final class EngineHub: @unchecked Sendable {
         lock.lock()
         latestGroups = states
         lock.unlock()
+    }
+
+    /// Applies a fold step to the connection tracker under the hub lock.
+    func updateConnections(_ body: (inout ConnectionTracker) -> Void) {
+        lock.lock()
+        body(&connectionTracker)
+        lock.unlock()
+    }
+
+    func snapshotConnections() -> [EngineConnection] {
+        lock.lock()
+        defer { lock.unlock() }
+        return connectionTracker.connections
     }
 
     func snapshotGroups() -> [PolicyGroupState] {
@@ -368,7 +397,46 @@ final class EngineClientBridge: NSObject, LibboxCommandClientHandlerProtocol, @u
 
     // The Swift importer renames the ObjC writeConnectionEvents: selector to
     // write(_:), which is the name the generated protocol conformance needs.
-    func write(_ events: LibboxConnectionEvents?) {}
+    func write(_ events: LibboxConnectionEvents?) {
+        guard let events else { return }
+        if events.reset {
+            hub.updateConnections { $0.reset() }
+        }
+        guard let iterator = events.iterator() else { return }
+        while iterator.hasNext() {
+            guard let event = iterator.next() else { break }
+            let type = Int64(event.type)
+            if type == LibboxConnectionEventNew, let connection = event.connection {
+                hub.updateConnections { $0.upsert(Self.engineConnection(connection)) }
+            } else if type == LibboxConnectionEventUpdate {
+                if let connection = event.connection {
+                    hub.updateConnections { $0.upsert(Self.engineConnection(connection)) }
+                } else {
+                    let id = event.id_
+                    let upload = UInt64(max(0, event.uplinkDelta))
+                    let download = UInt64(max(0, event.downlinkDelta))
+                    hub.updateConnections { $0.addTraffic(id: id, upload: upload, download: download) }
+                }
+            } else if type == LibboxConnectionEventClosed {
+                let id = event.id_
+                hub.updateConnections { $0.close(id: id) }
+            }
+        }
+    }
+
+    private static func engineConnection(_ connection: LibboxConnection) -> EngineConnection {
+        EngineConnection(
+            id: connection.id_,
+            network: connection.network,
+            destination: connection.displayDestination(),
+            domain: connection.domain.isEmpty ? nil : connection.domain,
+            outbound: connection.outbound,
+            rule: connection.rule.isEmpty ? nil : connection.rule,
+            upload: UInt64(max(0, connection.uplinkTotal)),
+            download: UInt64(max(0, connection.downlinkTotal)),
+            createdAt: connection.createdAt
+        )
+    }
 }
 
 /// Applies network settings on behalf of the engine and hands over the tun fd.

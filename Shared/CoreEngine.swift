@@ -30,6 +30,54 @@ struct PolicyGroupState: Sendable, Codable, Equatable {
     var members: [Member]
 }
 
+/// Live view of one connection tracked by the engine.
+struct EngineConnection: Sendable, Codable, Equatable, Identifiable {
+    var id: String
+    var network: String
+    var destination: String
+    var domain: String?
+    var outbound: String
+    var rule: String?
+    var upload: UInt64
+    var download: UInt64
+    /// Creation timestamp as reported by the engine.
+    var createdAt: Int64 = 0
+}
+
+/// Folds the engine's connection-event stream (full snapshots plus
+/// new/update/close deltas keyed by connection id) into the live list the
+/// inspector shows. Pure logic so the folding rules are unit-testable.
+struct ConnectionTracker: Sendable, Equatable {
+    private var connectionsByID: [String: EngineConnection] = [:]
+
+    var connections: [EngineConnection] {
+        connectionsByID.values.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var isEmpty: Bool { connectionsByID.isEmpty }
+
+    mutating func reset() {
+        connectionsByID.removeAll()
+    }
+
+    mutating func upsert(_ connection: EngineConnection) {
+        connectionsByID[connection.id] = connection
+    }
+
+    /// Traffic deltas for a connection the engine no longer describes in
+    /// full; ignored when the id is unknown.
+    mutating func addTraffic(id: String, upload: UInt64, download: UInt64) {
+        guard var connection = connectionsByID[id] else { return }
+        connection.upload &+= upload
+        connection.download &+= download
+        connectionsByID[id] = connection
+    }
+
+    mutating func close(id: String) {
+        connectionsByID.removeValue(forKey: id)
+    }
+}
+
 protocol CoreEngine: Sendable {
     func start(configuration: TunnelConfiguration, packetFlow: any PacketFlow) async throws
     func stop() async

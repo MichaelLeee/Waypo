@@ -236,8 +236,8 @@ struct EngineConfigBuilderTests {
                              transport: "anytls", credentials: "any-pass"),
                 TunnelServer(id: stID, name: "ST", host: "198.51.100.12", port: 8443,
                              transport: "shadowtls", credentials: "inner-pass",
-                             cipher: "aes-128-gcm", shadowTLSPassword: "st-pass",
-                             serverName: "st.example.com"),
+                             cipher: "aes-128-gcm", serverName: "st.example.com",
+                             shadowTLSPassword: "st-pass"),
             ],
             mtu: 1500,
             dnsAddresses: ["1.1.1.1"]
