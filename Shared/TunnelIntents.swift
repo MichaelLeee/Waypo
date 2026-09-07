@@ -6,6 +6,7 @@ import Foundation
 /// headless in the intent process: it works purely against the persisted
 /// profile set and the system's tunnel profile manager, never the app's
 /// in-memory UI state.
+@MainActor
 private func headlessController() async -> TunnelController {
     let controller = TunnelController()
     await controller.refresh()
