@@ -200,9 +200,10 @@ enum EngineConfigBuilder {
                 ]
                 switch group.kind {
                 case .select:
-                    // The persisted selection is the first member, matching
-                    // how the active server is kept at index 0 of its list.
-                    outbound["default"] = memberTags[0]
+                    // The persisted selection is the group's first member,
+                    // matching how the selection is kept at index 0 of the
+                    // member list.
+                    outbound["default"] = groupMemberTags[0]
                     outbound["interrupt_exist_connections"] = true
                 case .urlTest:
                     outbound["url"] = group.url
