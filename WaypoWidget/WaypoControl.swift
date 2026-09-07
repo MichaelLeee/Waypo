@@ -17,7 +17,7 @@ struct WaypoControl: ControlWidget {
                 Label("Tunnel", systemImage: isOn ? "shield.fill" : "shield")
             }
         }
-        .displayName("Tunnel", systemImage: "shield")
+        .displayName("Tunnel")
     }
 
     private var currentControlState: Bool {
