@@ -24,12 +24,18 @@ enum EngineConfigBuilder {
         // routed to by rule.
         if !configuration.dnsHosts.isEmpty {
             var predefined: [String: [String]] = [:]
+            // Dictionary keys are unordered; keep the domains in the user's
+            // entry order for stable output.
+            var orderedDomains: [String] = []
             for host in configuration.dnsHosts where !host.domain.isEmpty && !host.address.isEmpty {
+                if predefined[host.domain] == nil {
+                    orderedDomains.append(host.domain)
+                }
                 predefined[host.domain, default: []].append(host.address)
             }
             if !predefined.isEmpty {
                 dnsServers.append(["type": "hosts", "tag": "dns-hosts", "predefined": predefined])
-                dnsRules.append(["domain": Array(predefined.keys), "server": "dns-hosts"])
+                dnsRules.append(["domain": orderedDomains, "server": "dns-hosts"])
             }
         }
 
@@ -366,7 +372,9 @@ enum EngineConfigBuilder {
             route["auto_detect_interface"] = true
         }
         route["rules"] = routeRules
-        if !userRuleSets.isEmpty {
+        // Harness mode ignores user rules entirely, so it should not make
+        // the engine download their rule-sets either.
+        if inbound != .tun(autoRoute: false), !userRuleSets.isEmpty {
             route["rule_set"] = userRuleSets
         }
 
