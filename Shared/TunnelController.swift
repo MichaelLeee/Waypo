@@ -150,6 +150,10 @@ final class TunnelController {
         for index in configuration.groups.indices {
             configuration.groups[index].memberIDs.removeAll { $0 == id }
         }
+        // Rules pointing at the deleted server fall back to the active selection.
+        for index in configuration.rules.indices where configuration.rules[index].outboundID == id {
+            configuration.rules[index].outboundID = nil
+        }
         latencies.removeValue(forKey: id)
         persist()
     }
@@ -188,6 +192,9 @@ final class TunnelController {
 
     func deleteGroup(_ id: PolicyGroup.ID) {
         configuration.groups.removeAll { $0.id == id }
+        for index in configuration.rules.indices where configuration.rules[index].outboundID == id {
+            configuration.rules[index].outboundID = nil
+        }
         persist()
     }
 

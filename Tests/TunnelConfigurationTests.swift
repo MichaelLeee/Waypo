@@ -338,6 +338,38 @@ struct TunnelConfigurationTests {
 
     @Test
     @MainActor
+    func controllerRuleOutboundReferencesSurviveDeletion() throws {
+        let suite = "test.waypo.controller.rule-refs"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let server = TunnelServer(name: "A", host: "198.51.100.1", port: 443)
+        controller.addServer(server)
+        let group = PolicyGroup(name: "Pick", kind: .select, memberIDs: [server.id])
+        controller.addGroup(group)
+
+        let toServer = RoutingRule(domains: ["a.example"], action: .route, outboundID: server.id)
+        let toGroup = RoutingRule(domains: ["b.example"], action: .route, outboundID: group.id)
+        let toNothing = RoutingRule(domains: ["c.example"], action: .route, outboundID: nil)
+        controller.updateRules([toServer, toGroup, toNothing])
+
+        // Deleting a referenced target falls back to the active selection
+        // rather than leaving a dangling reference in the engine config.
+        controller.deleteServer(server.id)
+        #expect(controller.configuration.rules[0].outboundID == nil)
+        #expect(controller.configuration.rules[1].outboundID == group.id)
+        #expect(controller.configuration.rules[2].outboundID == nil)
+
+        controller.deleteGroup(group.id)
+        #expect(controller.configuration.rules.allSatisfy { $0.outboundID == nil })
+    }
+
+    @Test
+    @MainActor
     func controllerGroupCRUDAndSelection() throws {
         let suite = "test.waypo.controller.groups"
         UserDefaults().removePersistentDomain(forName: suite)
