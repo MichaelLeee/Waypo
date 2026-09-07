@@ -57,6 +57,9 @@ jobs:
           xcodebuild -project Waypo.xcodeproj -target WaypoTunnelMac -configuration Debug build CODE_SIGNING_ALLOWED=NO \
             "FRAMEWORK_SEARCH_PATHS=\$(SRCROOT)/Core/Libbox.xcframework/$SLICE" \
             "OTHER_LDFLAGS=-F\$(SRCROOT)/Core/Libbox.xcframework/$SLICE -framework Libbox -framework IOUSBHost -framework SystemConfiguration -framework CoreWLAN -lresolv -lbsm"
+          xcodebuild -project Waypo.xcodeproj -target WaypoMac -configuration Debug build CODE_SIGNING_ALLOWED=NO \
+            "FRAMEWORK_SEARCH_PATHS=\$(SRCROOT)/Core/Libbox.xcframework/$SLICE" \
+            "OTHER_LDFLAGS=-F\$(SRCROOT)/Core/Libbox.xcframework/$SLICE -framework Libbox -framework IOUSBHost -framework SystemConfiguration -framework CoreWLAN -lresolv -lbsm"
           SIM_SLICE=$(find Core/Libbox.xcframework -maxdepth 1 -type d -name 'ios*simulator*' -exec basename {} \; | sort | head -1)
           echo "iOS simulator slice: $SIM_SLICE"
           xcodebuild -project Waypo.xcodeproj -target WaypoTunnel -configuration Debug -sdk iphonesimulator build CODE_SIGNING_ALLOWED=NO \

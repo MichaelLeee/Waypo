@@ -11,6 +11,9 @@ struct ServerListView: View {
     @State private var showingLogs = false
     @State private var showingNewProfile = false
     @State private var newProfileName = ""
+#if os(macOS)
+    @State private var systemMode = SystemModeController()
+#endif
 
     var body: some View {
         Group {
@@ -58,7 +61,10 @@ struct ServerListView: View {
         List(selection: $selection) {
             rows
         }
-        .toolbar { profileToolbar; toolbarContent }
+        .toolbar { profileToolbar; systemModeToolbar; toolbarContent }
+        .safeAreaInset(edge: .bottom) {
+            systemModeFooter
+        }
 #else
         List {
             if showsConnectionRow {
@@ -164,6 +170,57 @@ struct ServerListView: View {
             }
         }
     }
+
+#if os(macOS)
+    private var systemModeToolbar: some ToolbarContent {
+        ToolbarItem {
+            Button {
+                systemMode.toggle(configuration: controller.configuration)
+            } label: {
+                if systemMode.isRunning {
+                    Label("Stop System Mode", systemImage: "stop.circle")
+                } else {
+                    Label("System Mode", systemImage: "globe")
+                }
+            }
+            .disabled(systemMode.isBusy || controller.configuration.servers.isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var systemModeFooter: some View {
+        if let error = systemMode.lastError {
+            Text(error)
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+                .background(.bar)
+        } else if systemMode.isRunning {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 7, height: 7)
+                Text("System Mode active · port \(SystemModeController.listenerPort)")
+                Spacer()
+                if let traffic = systemMode.traffic {
+                    Text("\(byteCount(traffic.bytesIn)) in · \(byteCount(traffic.bytesOut)) out · \(traffic.activeConnections) connections")
+                        .monospacedDigit()
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+            .background(.bar)
+        }
+    }
+
+    private func byteCount(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
+    }
+#endif
 
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
