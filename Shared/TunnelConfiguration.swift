@@ -112,8 +112,32 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-struct TunnelConfiguration: Codable, Hashable, Sendable {
+/// The group types the engine supports natively. `select` keeps whatever
+/// member the user picks; `url-test` automatically uses the member with the
+/// lowest measured latency. (Fallback and load-balance would need emulation
+/// on top and are intentionally absent for now.)
+enum PolicyGroupKind: String, Codable, Sendable, CaseIterable {
+    case select
+    case urlTest = "url-test"
+}
+
+struct PolicyGroup: Codable, Hashable, Sendable, Identifiable {
+    var id: UUID = UUID()
+    var name: String
+    var kind: PolicyGroupKind
+    /// Server ids, in order. For `select` groups the first entry is the
+    /// persisted selection, mirroring how the active server is kept at
+    /// index 0 of the server list.
+    var memberIDs: [TunnelServer.ID] = []
+    /// Latency test target for `url-test` groups.
+    var url: String = "https://www.gstatic.com/generate_204"
+    /// Re-test interval for `url-test` groups, in seconds.
+    var interval: TimeInterval = 300
+}
+
+struct TunnelConfiguration: Hashable, Sendable {
     var servers: [TunnelServer]
+    var groups: [PolicyGroup] = []
     var mtu: Int
     var dnsAddresses: [String]
 
@@ -126,4 +150,28 @@ struct TunnelConfiguration: Codable, Hashable, Sendable {
     )
 
     static let empty = TunnelConfiguration(servers: [], mtu: 1500, dnsAddresses: ["1.1.1.1", "8.8.8.8"])
+}
+
+extension TunnelConfiguration: Codable {
+    enum CodingKeys: String, CodingKey {
+        case servers, groups, mtu, dnsAddresses
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(servers, forKey: .servers)
+        try container.encode(groups, forKey: .groups)
+        try container.encode(mtu, forKey: .mtu)
+        try container.encode(dnsAddresses, forKey: .dnsAddresses)
+    }
+
+    /// `groups` postdates the original persistence format, so older saved
+    /// configurations decode with an empty list.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        servers = try container.decode([TunnelServer].self, forKey: .servers)
+        groups = try container.decodeIfPresent([PolicyGroup].self, forKey: .groups) ?? []
+        mtu = try container.decode(Int.self, forKey: .mtu)
+        dnsAddresses = try container.decode([String].self, forKey: .dnsAddresses)
+    }
 }

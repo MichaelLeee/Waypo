@@ -164,4 +164,58 @@ struct EngineConfigBuilderTests {
         #expect(outbounds[0]["type"] as? String == "direct")
         #expect(outbounds[0]["tag"] as? String == "out")
     }
+
+    @Test
+    func groupsEmitAndJoinTheTopSelector() throws {
+        let a = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let b = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let c = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let urlTestGroupID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let selectGroupID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let config = TunnelConfiguration(
+            servers: [
+                TunnelServer(id: a, name: "A", host: "198.51.100.1", port: 443,
+                             transport: "trojan", credentials: "pa"),
+                TunnelServer(id: b, name: "B", host: "198.51.100.2", port: 443,
+                             transport: "trojan", credentials: "pb"),
+                TunnelServer(id: c, name: "C", host: "198.51.100.3", port: 443,
+                             transport: "trojan", credentials: "pc"),
+            ],
+            groups: [
+                PolicyGroup(id: urlTestGroupID, name: "Fastest", kind: .urlTest,
+                            memberIDs: [a, b], interval: 60),
+                PolicyGroup(id: selectGroupID, name: "Pick", kind: .select, memberIDs: [b, c]),
+                // Every member was deleted; the group must not be emitted.
+                PolicyGroup(name: "Empty", kind: .select, memberIDs: [UUID()]),
+            ],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let outbounds = json["outbounds"] as! [[String: Any]]
+        let byTag = Dictionary(uniqueKeysWithValues: outbounds.map { ($0["tag"] as! String, $0) })
+
+        let urlTest = byTag[urlTestGroupID.uuidString]!
+        #expect(urlTest["type"] as? String == "urltest")
+        #expect(urlTest["outbounds"] as? [String] == [a.uuidString, b.uuidString])
+        #expect(urlTest["interval"] as? String == "60s")
+        #expect(urlTest["tolerance"] as? Int == 50)
+        #expect(urlTest["url"] != nil)
+
+        let select = byTag[selectGroupID.uuidString]!
+        #expect(select["type"] as? String == "selector")
+        #expect(select["outbounds"] as? [String] == [b.uuidString, c.uuidString])
+        #expect(select["default"] as? String == b.uuidString)
+        #expect(select["interrupt_exist_connections"] as? Bool == true)
+
+        let selector = outbounds.first { $0["tag"] as? String == "out" }!
+        #expect(selector["outbounds"] as? [String] ==
+                [urlTestGroupID.uuidString, selectGroupID.uuidString, a.uuidString, b.uuidString, c.uuidString])
+        #expect(selector["default"] as? String == a.uuidString)
+
+        // Order: selector, then groups, then leaf servers.
+        let tags = outbounds.map { $0["tag"] as! String }
+        #expect(tags == ["out", urlTestGroupID.uuidString, selectGroupID.uuidString,
+                         a.uuidString, b.uuidString, c.uuidString, "direct-out"])
+    }
 }

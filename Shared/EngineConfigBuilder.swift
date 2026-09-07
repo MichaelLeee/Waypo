@@ -137,18 +137,49 @@ enum EngineConfigBuilder {
                 }
                 serverOutbounds.append(outbound)
             }
-            // "out" is a selector over every server, so the active endpoint
-            // can be switched live (via the command client) without a tunnel
-            // restart. The default is the first server, which matches the
-            // persistence model of keeping the active server at index 0.
+            // Groups sit between the leaf server outbounds and "out": each
+            // is a selector or url-test over its member servers, and "out"
+            // can route to any group as a whole.
+            var groupOutbounds: [[String: Any]] = []
+            for group in configuration.groups {
+                let memberTags = group.memberIDs.compactMap { memberID in
+                    remoteOutbounds.first { $0.id == memberID }?.id.uuidString
+                }
+                guard !memberTags.isEmpty else { continue }
+                var outbound: [String: Any] = [
+                    "type": group.kind == .urlTest ? "urltest" : "selector",
+                    "tag": group.id.uuidString,
+                    "outbounds": memberTags,
+                ]
+                switch group.kind {
+                case .select:
+                    // The persisted selection is the first member, matching
+                    // how the active server is kept at index 0 of its list.
+                    outbound["default"] = memberTags[0]
+                    outbound["interrupt_exist_connections"] = true
+                case .urlTest:
+                    outbound["url"] = group.url
+                    // The engine expects a duration string; a bare number
+                    // would be interpreted as nanoseconds.
+                    outbound["interval"] = "\(Int(group.interval))s"
+                    outbound["tolerance"] = 50
+                }
+                groupOutbounds.append(outbound)
+            }
+            // "out" is a selector over every group and server, so the active
+            // endpoint can be switched live (via the command client) without
+            // a tunnel restart. The default is the first server, which
+            // matches the persistence model of keeping the active server at
+            // index 0.
             let selector: [String: Any] = [
                 "type": "selector",
                 "tag": "out",
-                "outbounds": serverOutbounds.map { $0["tag"] as? String ?? "" },
+                "outbounds": groupOutbounds.map { $0["tag"] as? String ?? "" }
+                    + serverOutbounds.map { $0["tag"] as? String ?? "" },
                 "default": serverOutbounds.first?["tag"] ?? "",
                 "interrupt_exist_connections": true,
             ]
-            outbounds = [selector] + serverOutbounds + [["type": "direct", "tag": "direct-out"]]
+            outbounds = [selector] + groupOutbounds + serverOutbounds + [["type": "direct", "tag": "direct-out"]]
         }
 
         let routeRules: [[String: Any]]

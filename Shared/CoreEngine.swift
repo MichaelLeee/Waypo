@@ -15,6 +15,21 @@ enum CoreEvent: Sendable {
     case error(message: String)
 }
 
+/// Live view of one engine group as reported by the engine's group stream.
+/// Member tags are server ids; latency is absent until the engine has
+/// measured it.
+struct PolicyGroupState: Sendable, Codable, Equatable {
+    struct Member: Sendable, Codable, Equatable {
+        var tag: String
+        var latencyMs: Int?
+    }
+
+    var tag: String
+    var kind: String
+    var selected: String?
+    var members: [Member]
+}
+
 protocol CoreEngine: Sendable {
     func start(configuration: TunnelConfiguration, packetFlow: any PacketFlow) async throws
     func stop() async

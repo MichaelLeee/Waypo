@@ -132,8 +132,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
                 return
             }
+            if message == "groups" {
+                completionHandler?(try? JSONEncoder().encode(engineHolder.get()?.currentGroups() ?? []))
+                return
+            }
             if message.hasPrefix("select ") {
-                engineHolder.get()?.selectOutbound(String(message.dropFirst("select ".count)))
+                // "select <group> <member>" targets one group; the one-token
+                // legacy form keeps selecting within the top-level selector.
+                let parts = message.dropFirst("select ".count).split(separator: " ")
+                if parts.count == 2 {
+                    engineHolder.get()?.selectOutbound(group: String(parts[0]), tag: String(parts[1]))
+                } else if parts.count == 1 {
+                    engineHolder.get()?.selectOutbound(group: "out", tag: String(parts[0]))
+                }
                 completionHandler?(nil)
                 return
             }

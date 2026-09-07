@@ -9,6 +9,7 @@ struct ServerListView: View {
     @State private var showingNewServer = false
     @State private var showingImport = false
     @State private var showingLogs = false
+    @State private var showingGroups = false
     @State private var showingNewProfile = false
     @State private var newProfileName = ""
 #if os(macOS)
@@ -34,6 +35,9 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingLogs) {
             LogView(controller: controller)
+        }
+        .sheet(isPresented: $showingGroups) {
+            GroupsView(controller: controller)
         }
         .alert("New Profile", isPresented: $showingNewProfile) {
             TextField("Name", text: $newProfileName)
@@ -233,6 +237,11 @@ struct ServerListView: View {
                 showingImport = true
             } label: {
                 Label("Import", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                showingGroups = true
+            } label: {
+                Label("Groups", systemImage: "rectangle.stack")
             }
             Button {
                 showingLogs = true

@@ -23,6 +23,7 @@ final class TunnelController {
     private(set) var traffic: CoreStats?
     private(set) var lastError: String?
     private(set) var latencies: [TunnelServer.ID: Double] = [:]
+    private(set) var groupStates: [PolicyGroupState] = []
     private(set) var isTestingLatency = false
     var configuration: TunnelConfiguration = .default
     private(set) var profiles: [TunnelProfile] = []
@@ -145,6 +146,9 @@ final class TunnelController {
 
     func deleteServer(_ id: TunnelServer.ID) {
         configuration.servers.removeAll { $0.id == id }
+        for index in configuration.groups.indices {
+            configuration.groups[index].memberIDs.removeAll { $0 == id }
+        }
         latencies.removeValue(forKey: id)
         persist()
     }
@@ -168,6 +172,51 @@ final class TunnelController {
         try? session.sendProviderMessage(Data("select \(id.uuidString)".utf8)) { _ in }
     }
 
+    // MARK: - Groups
+
+    func addGroup(_ group: PolicyGroup) {
+        configuration.groups.append(group)
+        persist()
+    }
+
+    func updateGroup(_ group: PolicyGroup) {
+        guard let index = configuration.groups.firstIndex(where: { $0.id == group.id }) else { return }
+        configuration.groups[index] = group
+        persist()
+    }
+
+    func deleteGroup(_ id: PolicyGroup.ID) {
+        configuration.groups.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// Selecting a member of a `select` group moves it to the front of the
+    /// member list (the persisted preference, and the group's default on the
+    /// next tunnel start). While connected, the provider is told to switch
+    /// the live group selection immediately.
+    func setGroupMember(group: PolicyGroup.ID, member: TunnelServer.ID) {
+        guard let index = configuration.groups.firstIndex(where: { $0.id == group }),
+              configuration.groups[index].kind == .select,
+              let memberIndex = configuration.groups[index].memberIDs.firstIndex(of: member),
+              memberIndex != 0
+        else { return }
+        let id = configuration.groups[index].memberIDs.remove(at: memberIndex)
+        configuration.groups[index].memberIDs.insert(id, at: 0)
+        persist()
+        if status == .connected {
+            Task {
+                guard let session = manager?.connection as? NETunnelProviderSession else { return }
+                try? session.sendProviderMessage(
+                    Data("select \(group.uuidString) \(member.uuidString)".utf8)) { _ in }
+            }
+        }
+    }
+
+    /// Latest engine-reported state for one group, if the tunnel is running.
+    func groupState(for id: PolicyGroup.ID) -> PolicyGroupState? {
+        groupStates.first { $0.tag == id.uuidString }
+    }
+
     // MARK: - Live traffic stats
 
     /// While connected, polls the provider once a second for its latest
@@ -178,6 +227,7 @@ final class TunnelController {
             statsTask = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.pollStats()
+                    await self?.pollGroups()
                     try? await Task.sleep(for: .seconds(1))
                 }
             }
@@ -185,6 +235,7 @@ final class TunnelController {
             statsTask?.cancel()
             statsTask = nil
             traffic = nil
+            groupStates = []
         }
     }
 
@@ -203,6 +254,23 @@ final class TunnelController {
             return
         }
         traffic = stats
+    }
+
+    private func pollGroups() async {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let response: Data? = await withCheckedContinuation { continuation in
+            do {
+                try session.sendProviderMessage(Data("groups".utf8)) { reply in
+                    continuation.resume(returning: reply)
+                }
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        guard let response, let states = try? JSONDecoder().decode([PolicyGroupState].self, from: response) else {
+            return
+        }
+        groupStates = states
     }
 
     // MARK: - Import

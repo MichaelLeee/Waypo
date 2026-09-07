@@ -83,6 +83,7 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         options.statusInterval = 1_000_000_000 // nanoseconds
         options.addCommand(LibboxCommandStatus)
         options.addCommand(LibboxCommandLog)
+        options.addCommand(LibboxCommandGroup)
         let bridge = EngineClientBridge(hub: hub, logBuffer: logBuffer)
         clientBridge = bridge
         guard let client = LibboxNewCommandClient(bridge, options) else {
@@ -119,13 +120,19 @@ final class LibboxCoreEngine: CoreEngine, @unchecked Sendable {
         commandServer?.wake()
     }
 
-    /// Switches the live selector outbound without restarting the tunnel.
-    func selectOutbound(_ tag: String) {
+    /// Switches the live selection of one group without restarting the
+    /// tunnel. Passing "out" as the group targets the top-level selector.
+    func selectOutbound(group: String, tag: String) {
         do {
-            try commandClient?.selectOutbound("out", outboundTag: tag)
+            try commandClient?.selectOutbound(group, outboundTag: tag)
         } catch {
             logger.error("outbound switch to \(tag, privacy: .public) failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Latest group snapshot pushed by the engine's group stream.
+    func currentGroups() -> [PolicyGroupState] {
+        hub.snapshotGroups()
     }
 
     /// Snapshot of the captured engine log lines, oldest first.
@@ -155,6 +162,7 @@ final class EngineHub: @unchecked Sendable {
     private var eventStreams: [UUID: AsyncStream<CoreEvent>.Continuation] = [:]
     private var statsStreams: [UUID: AsyncStream<CoreStats>.Continuation] = [:]
     private var latestStats: CoreStats?
+    private var latestGroups: [PolicyGroupState] = []
     private var open = true
 
     func events() -> AsyncStream<CoreEvent> {
@@ -212,6 +220,18 @@ final class EngineHub: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return latestStats
+    }
+
+    func storeGroups(_ states: [PolicyGroupState]) {
+        lock.lock()
+        latestGroups = states
+        lock.unlock()
+    }
+
+    func snapshotGroups() -> [PolicyGroupState] {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestGroups
     }
 
     func close() {
@@ -315,7 +335,30 @@ final class EngineClientBridge: NSObject, LibboxCommandClientHandlerProtocol, @u
         logBuffer.append(drained)
     }
 
-    func writeGroups(_ message: (any LibboxOutboundGroupIteratorProtocol)?) {}
+    func writeGroups(_ message: (any LibboxOutboundGroupIteratorProtocol)?) {
+        guard let message else { return }
+        var states: [PolicyGroupState] = []
+        while message.hasNext() {
+            guard let group = message.next() else { break }
+            var members: [PolicyGroupState.Member] = []
+            if let items = group.getItems() {
+                while items.hasNext() {
+                    guard let item = items.next() else { break }
+                    // Delays are non-positive until the engine has measured
+                    // the member.
+                    let latency = Int(item.urlTestDelay)
+                    members.append(.init(tag: item.tag, latencyMs: latency > 0 ? latency : nil))
+                }
+            }
+            states.append(PolicyGroupState(
+                tag: group.tag,
+                kind: group.type,
+                selected: group.selected.isEmpty ? nil : group.selected,
+                members: members
+            ))
+        }
+        hub.storeGroups(states)
+    }
 
     func writeOutbounds(_ message: (any LibboxOutboundGroupItemIteratorProtocol)?) {}
 

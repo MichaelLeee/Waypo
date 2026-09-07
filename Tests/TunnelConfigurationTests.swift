@@ -175,4 +175,46 @@ struct TunnelConfigurationTests {
         #expect(reloaded.activeProfile?.name == "Default")
         #expect(reloaded.profiles.count == 1)
     }
+
+    @Test
+    func decodeWithoutGroupsKeepsEmptyList() throws {
+        // Configurations persisted before groups existed must still load.
+        let json = #"{"servers":[],"mtu":1500,"dnsAddresses":["1.1.1.1"]}"#
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.groups.isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func controllerGroupCRUDAndSelection() throws {
+        let suite = "test.waypo.controller.groups"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let a = TunnelServer(name: "A", host: "198.51.100.1", port: 443)
+        let b = TunnelServer(name: "B", host: "198.51.100.2", port: 443)
+        controller.addServer(a)
+        controller.addServer(b)
+
+        let group = PolicyGroup(name: "Pick", kind: .select, memberIDs: [a.id, b.id])
+        controller.addGroup(group)
+        #expect(controller.configuration.groups.count == 1)
+
+        // Selecting the second member moves it to the front (the persisted
+        // preference and next-start default).
+        controller.setGroupMember(group: group.id, member: b.id)
+        #expect(controller.configuration.groups[0].memberIDs.first == b.id)
+        // The top-level active server is untouched by group selection.
+        #expect(controller.configuration.servers.first?.id == a.id)
+
+        controller.deleteServer(a.id)
+        #expect(controller.configuration.groups[0].memberIDs == [b.id])
+
+        controller.deleteGroup(group.id)
+        #expect(controller.configuration.groups.isEmpty)
+    }
 }
