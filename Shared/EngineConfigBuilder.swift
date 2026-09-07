@@ -16,8 +16,65 @@ enum EngineConfigBuilder {
     static func makeContent(_ configuration: TunnelConfiguration, inbound: EngineInbound) throws -> String {
         let server = configuration.servers.first ?? TunnelServer(name: "Primary", host: "203.0.113.10", port: 443)
 
-        let dnsServers: [[String: Any]] = configuration.dnsAddresses.enumerated().map { index, address in
-            ["type": "udp", "tag": "dns-\(index)", "server": address]
+        let resolverTags = configuration.dnsResolvers.indices.map { "dns-\($0)" }
+        var dnsServers: [[String: Any]] = []
+        var dnsRules: [[String: Any]] = []
+
+        // Static answers live in a hosts resolver that matching queries are
+        // routed to by rule.
+        if !configuration.dnsHosts.isEmpty {
+            var predefined: [String: [String]] = [:]
+            for host in configuration.dnsHosts where !host.domain.isEmpty && !host.address.isEmpty {
+                predefined[host.domain, default: []].append(host.address)
+            }
+            if !predefined.isEmpty {
+                dnsServers.append(["type": "hosts", "tag": "dns-hosts", "predefined": predefined])
+                dnsRules.append(["domain": Array(predefined.keys), "server": "dns-hosts"])
+            }
+        }
+
+        for (index, resolver) in configuration.dnsResolvers.enumerated() {
+            var entry: [String: Any] = [
+                "type": resolver.kind.rawValue,
+                "tag": "dns-\(index)",
+                "server": resolver.server,
+            ]
+            if let port = resolver.serverPort, port > 0 {
+                entry["server_port"] = port
+            }
+            if resolver.kind == .https, let path = resolver.path, !path.isEmpty {
+                entry["path"] = path
+            }
+            // Encrypted transports carry their own TLS settings; the
+            // server name doubles as the SNI.
+            if resolver.kind != .udp {
+                entry["tls"] = ["enabled": true, "server_name": resolver.server]
+            }
+            dnsServers.append(entry)
+        }
+
+        // Fake addresses come from a dedicated resolver; queries for A/AAAA
+        // records are routed to it unless the domain is excluded.
+        if configuration.fakeIPEnabled, !resolverTags.isEmpty {
+            dnsServers.append([
+                "type": "fakeip",
+                "tag": "dns-fakeip",
+                "inet4_range": "198.18.0.0/15",
+                "inet6_range": "fc00::/18",
+            ])
+            let exclusions = configuration.fakeIPExclusions.filter { !$0.isEmpty }
+            if !exclusions.isEmpty {
+                dnsRules.append(["domain_suffix": exclusions, "server": resolverTags[0]])
+            }
+            dnsRules.append(["query_type": ["A", "AAAA"], "server": "dns-fakeip"])
+        }
+
+        var dns: [String: Any] = ["servers": dnsServers]
+        if !dnsRules.isEmpty {
+            dns["rules"] = dnsRules
+        }
+        if let finalTag = resolverTags.first {
+            dns["final"] = finalTag
         }
 
         let inbounds: [[String: Any]]
@@ -282,7 +339,7 @@ enum EngineConfigBuilder {
 
         let json: [String: Any] = [
             "log": ["level": logLevel, "timestamp": true],
-            "dns": ["servers": dnsServers],
+            "dns": dns,
             "inbounds": inbounds,
             "outbounds": outbounds,
             "route": route,

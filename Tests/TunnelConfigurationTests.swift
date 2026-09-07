@@ -206,6 +206,72 @@ struct TunnelConfigurationTests {
     }
 
     @Test
+    func dnsSettingsRoundTrip() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsResolvers: [
+                DNSResolver(kind: .udp, server: "1.1.1.1"),
+                DNSResolver(kind: .https, server: "doh.example.com", path: "/dns-query"),
+                DNSResolver(kind: .tls, server: "dot.example.com", serverPort: 853),
+            ],
+            dnsHosts: [DNSHostMapping(domain: "home.lan", address: "192.168.1.10")],
+            fakeIPEnabled: true,
+            fakeIPExclusions: ["company.lan"]
+        )
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: data)
+        #expect(decoded == config)
+        #expect(decoded.dnsAddresses == ["1.1.1.1", "doh.example.com", "dot.example.com"])
+    }
+
+    @Test
+    func decodeWithoutDNSResolversFallsBackToLegacyAddresses() throws {
+        // Configurations persisted before resolvers existed carry only plain
+        // addresses; they decode into UDP resolvers.
+        let json = #"{"servers":[],"mtu":1500,"dnsAddresses":["9.9.9.9","149.112.112.112"]}"#
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.dnsResolvers.count == 2)
+        #expect(decoded.dnsResolvers[0].kind == .udp)
+        #expect(decoded.dnsResolvers[0].server == "9.9.9.9")
+        #expect(decoded.dnsResolvers[1].server == "149.112.112.112")
+        #expect(decoded.dnsHosts.isEmpty)
+        #expect(decoded.fakeIPEnabled == false)
+    }
+
+    @Test
+    @MainActor
+    func controllerUpdateDNSPersistsAndFillsDefault() throws {
+        let suite = "test.waypo.controller.dns"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let resolvers = [
+            DNSResolver(kind: .https, server: "doh.example.com", path: "/dns-query"),
+        ]
+        controller.updateDNS(resolvers: resolvers,
+                             hosts: [DNSHostMapping(domain: "home.lan", address: "192.168.1.10")],
+                             fakeIPEnabled: true, fakeIPExclusions: ["company.lan"])
+        #expect(controller.configuration.dnsResolvers == resolvers)
+        #expect(controller.configuration.fakeIPEnabled)
+
+        // An empty resolver list is replaced with the fallback.
+        controller.updateDNS(resolvers: [], hosts: [],
+                             fakeIPEnabled: false, fakeIPExclusions: [])
+        #expect(controller.configuration.dnsResolvers.count == 1)
+        #expect(controller.configuration.dnsResolvers[0].server == "1.1.1.1")
+
+        // The update persisted to the store.
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.configuration.dnsResolvers[0].server == "1.1.1.1")
+    }
+
+    @Test
     @MainActor
     func controllerGroupCRUDAndSelection() throws {
         let suite = "test.waypo.controller.groups"

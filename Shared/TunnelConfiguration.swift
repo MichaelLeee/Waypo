@@ -166,11 +166,77 @@ struct PolicyGroup: Codable, Hashable, Sendable, Identifiable {
     var interval: TimeInterval = 300
 }
 
+/// One resolver the engine's DNS client queries. Plain UDP plus the three
+/// encrypted transports the engine supports.
+struct DNSResolver: Hashable, Sendable, Codable, Identifiable {
+    enum Kind: String, Codable, CaseIterable, Sendable {
+        case udp
+        case https
+        case tls
+        case quic
+    }
+
+    var id: UUID = UUID()
+    var kind: Kind = .udp
+    var server: String
+    /// Nil means the transport default (53 for udp, 443 otherwise).
+    var serverPort: Int?
+    /// URL path for DoH; nil means the standard /dns-query.
+    var path: String?
+
+    init(id: UUID = UUID(), kind: Kind = .udp, server: String, serverPort: Int? = nil, path: String? = nil) {
+        self.id = id
+        self.kind = kind
+        self.server = server
+        self.serverPort = serverPort
+        self.path = path
+    }
+}
+
+/// A static domain → address answer served by the engine's hosts resolver.
+struct DNSHostMapping: Hashable, Sendable, Codable, Identifiable {
+    var id: UUID = UUID()
+    var domain: String
+    var address: String
+
+    init(id: UUID = UUID(), domain: String, address: String) {
+        self.id = id
+        self.domain = domain
+        self.address = address
+    }
+}
+
 struct TunnelConfiguration: Hashable, Sendable {
     var servers: [TunnelServer]
     var groups: [PolicyGroup] = []
     var mtu: Int
-    var dnsAddresses: [String]
+    var dnsResolvers: [DNSResolver]
+    var dnsHosts: [DNSHostMapping] = []
+    var fakeIPEnabled = false
+    /// Domain suffixes that never receive fake addresses.
+    var fakeIPExclusions: [String] = []
+
+    /// Plain resolver addresses, for consumers that only need hosts
+    /// (the system tunnel settings). Assigning converts to UDP resolvers.
+    var dnsAddresses: [String] {
+        get { dnsResolvers.map(\.server) }
+        set { dnsResolvers = newValue.map { DNSResolver(server: $0) } }
+    }
+
+    init(servers: [TunnelServer], groups: [PolicyGroup] = [], mtu: Int,
+         dnsAddresses: [String] = [], dnsResolvers: [DNSResolver]? = nil,
+         dnsHosts: [DNSHostMapping] = [], fakeIPEnabled: Bool = false,
+         fakeIPExclusions: [String] = []) {
+        self.servers = servers
+        self.groups = groups
+        self.mtu = mtu
+        self.dnsResolvers = dnsResolvers
+            ?? (!dnsAddresses.isEmpty ? dnsAddresses.map { DNSResolver(server: $0) }
+                                       : [DNSResolver(server: "1.1.1.1")])
+        self.dnsHosts = dnsHosts
+        self.fakeIPEnabled = fakeIPEnabled
+        self.fakeIPExclusions = fakeIPExclusions
+    }
 
     static let `default` = TunnelConfiguration(
         servers: [
@@ -185,7 +251,9 @@ struct TunnelConfiguration: Hashable, Sendable {
 
 extension TunnelConfiguration: Codable {
     enum CodingKeys: String, CodingKey {
-        case servers, groups, mtu, dnsAddresses
+        case servers, groups, mtu
+        case dnsResolvers, dnsHosts, fakeIPEnabled, fakeIPExclusions
+        case dnsAddresses
     }
 
     func encode(to encoder: Encoder) throws {
@@ -193,16 +261,31 @@ extension TunnelConfiguration: Codable {
         try container.encode(servers, forKey: .servers)
         try container.encode(groups, forKey: .groups)
         try container.encode(mtu, forKey: .mtu)
-        try container.encode(dnsAddresses, forKey: .dnsAddresses)
+        try container.encode(dnsResolvers, forKey: .dnsResolvers)
+        try container.encode(dnsHosts, forKey: .dnsHosts)
+        if fakeIPEnabled {
+            try container.encode(fakeIPEnabled, forKey: .fakeIPEnabled)
+            try container.encode(fakeIPExclusions, forKey: .fakeIPExclusions)
+        }
     }
 
-    /// `groups` postdates the original persistence format, so older saved
-    /// configurations decode with an empty list.
+    /// `groups` and the DNS settings postdate the original persistence
+    /// format, so older saved configurations decode with defaults; the
+    /// original plain `dnsAddresses` list converts to UDP resolvers.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         servers = try container.decode([TunnelServer].self, forKey: .servers)
         groups = try container.decodeIfPresent([PolicyGroup].self, forKey: .groups) ?? []
         mtu = try container.decode(Int.self, forKey: .mtu)
-        dnsAddresses = try container.decode([String].self, forKey: .dnsAddresses)
+        if let resolvers = try container.decodeIfPresent([DNSResolver].self, forKey: .dnsResolvers),
+           !resolvers.isEmpty {
+            dnsResolvers = resolvers
+        } else {
+            let legacy = try container.decodeIfPresent([String].self, forKey: .dnsAddresses) ?? []
+            dnsResolvers = legacy.map { DNSResolver(server: $0) }
+        }
+        dnsHosts = try container.decodeIfPresent([DNSHostMapping].self, forKey: .dnsHosts) ?? []
+        fakeIPEnabled = try container.decodeIfPresent(Bool.self, forKey: .fakeIPEnabled) ?? false
+        fakeIPExclusions = try container.decodeIfPresent([String].self, forKey: .fakeIPExclusions) ?? []
     }
 }

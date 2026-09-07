@@ -300,6 +300,17 @@ final class TunnelController {
         try? session.sendProviderMessage(Data("close \(id)".utf8)) { _ in }
     }
 
+    // MARK: - DNS
+
+    func updateDNS(resolvers: [DNSResolver], hosts: [DNSHostMapping],
+                   fakeIPEnabled: Bool, fakeIPExclusions: [String]) {
+        configuration.dnsResolvers = resolvers.isEmpty ? [DNSResolver(server: "1.1.1.1")] : resolvers
+        configuration.dnsHosts = hosts
+        configuration.fakeIPEnabled = fakeIPEnabled
+        configuration.fakeIPExclusions = fakeIPExclusions
+        persist()
+    }
+
     // MARK: - Import
 
     /// Adds servers parsed from share-link text, skipping duplicates.

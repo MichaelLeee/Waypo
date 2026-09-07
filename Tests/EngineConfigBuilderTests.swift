@@ -303,6 +303,130 @@ struct EngineConfigBuilderTests {
     }
 
     @Test
+    func plainResolversEmitUDPServersWithFinalAndNoRules() throws {
+        let json = try parse(TunnelConfiguration.default, inbound: .tun(autoRoute: true))
+        let dns = json["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        #expect(servers.count == 2)
+        #expect(servers[0]["type"] as? String == "udp")
+        #expect(servers[0]["tag"] as? String == "dns-0")
+        #expect(servers[0]["server"] as? String == "1.1.1.1")
+        #expect(servers[1]["server"] as? String == "8.8.8.8")
+        #expect(dns["final"] as? String == "dns-0")
+        #expect(dns["rules"] == nil)
+    }
+
+    @Test
+    func encryptedResolversCarryPortPathAndTLS() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsResolvers: [
+                DNSResolver(kind: .https, server: "doh.example.com", serverPort: 8443, path: "/custom"),
+                DNSResolver(kind: .tls, server: "dot.example.com"),
+                DNSResolver(kind: .quic, server: "doq.example.com"),
+            ]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let servers = (json["dns"] as! [String: Any])["servers"] as! [[String: Any]]
+        #expect(servers.count == 3)
+
+        let doh = servers[0]
+        #expect(doh["type"] as? String == "https")
+        #expect(doh["server_port"] as? Int == 8443)
+        #expect(doh["path"] as? String == "/custom")
+        let dohTLS = doh["tls"] as! [String: Any]
+        #expect(dohTLS["enabled"] as? Bool == true)
+        #expect(dohTLS["server_name"] as? String == "doh.example.com")
+
+        let dot = servers[1]
+        #expect(dot["type"] as? String == "tls")
+        #expect(dot["path"] == nil)
+        let dotTLS = dot["tls"] as! [String: Any]
+        #expect(dotTLS["enabled"] as? Bool == true)
+        #expect(dotTLS["server_name"] as? String == "dot.example.com")
+
+        let doq = servers[2]
+        #expect(doq["type"] as? String == "quic")
+        #expect((doq["tls"] as! [String: Any])["enabled"] as? Bool == true)
+
+        // The plain-UDP-only fields stay off encrypted resolvers.
+        #expect(doh["server_port"] as? Int == 8443)
+        #expect(dot["server_port"] == nil)
+    }
+
+    @Test
+    func hostsEmitPredefinedServerAndDomainRule() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsResolvers: [DNSResolver(server: "1.1.1.1")],
+            dnsHosts: [
+                DNSHostMapping(domain: "home.lan", address: "192.168.1.10"),
+                DNSHostMapping(domain: "nas.lan", address: "192.168.1.20"),
+            ]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let dns = json["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        // The hosts resolver precedes the regular ones and gets its own tag.
+        #expect(servers.count == 2)
+        let hosts = servers.first { $0["tag"] as? String == "dns-hosts" }!
+        #expect(hosts["type"] as? String == "hosts")
+        #expect((hosts["predefined"] as! [String: [String]])["home.lan"] == ["192.168.1.10"])
+
+        let rules = dns["rules"] as! [[String: Any]]
+        #expect(rules.count == 1)
+        #expect(rules[0]["domain"] as? [String] == ["home.lan", "nas.lan"])
+        #expect(rules[0]["server"] as? String == "dns-hosts")
+        #expect(dns["final"] as? String == "dns-0")
+    }
+
+    @Test
+    func fakeIPRoutesAAndAAAAQueriesWithExclusions() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsResolvers: [DNSResolver(server: "1.1.1.1")],
+            fakeIPEnabled: true,
+            fakeIPExclusions: ["company.lan", "internal.corp"]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let dns = json["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        let fakeIP = servers.first { $0["tag"] as? String == "dns-fakeip" }!
+        #expect(fakeIP["type"] as? String == "fakeip")
+        #expect(fakeIP["inet4_range"] as? String == "198.18.0.0/15")
+        #expect(fakeIP["inet6_range"] as? String == "fc00::/18")
+
+        let rules = dns["rules"] as! [[String: Any]]
+        // Exclusions first, then the terminating fake-answer rule.
+        #expect(rules.count == 2)
+        #expect(rules[0]["domain_suffix"] as? [String] == ["company.lan", "internal.corp"])
+        #expect(rules[0]["server"] as? String == "dns-0")
+        #expect(rules[1]["query_type"] as? [String] == ["A", "AAAA"])
+        #expect(rules[1]["server"] as? String == "dns-fakeip")
+    }
+
+    @Test
+    func fakeIPWithoutResolversIsSkipped() throws {
+        // A configuration always carries at least one resolver, but the
+        // builder must not crash on an empty list either way.
+        var config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsResolvers: []
+        )
+        config.fakeIPEnabled = true
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let dns = json["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        #expect(servers.isEmpty)
+        #expect(dns["rules"] == nil)
+        #expect(dns["final"] == nil)
+    }
+
+    @Test
     func wireGuardWithoutOptionalFieldsOmitsTheirKeys() throws {
         let config = TunnelConfiguration(
             servers: [

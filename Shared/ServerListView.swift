@@ -11,6 +11,7 @@ struct ServerListView: View {
     @State private var showingLogs = false
     @State private var showingGroups = false
     @State private var showingConnections = false
+    @State private var showingDNS = false
     @State private var showingNewProfile = false
     @State private var newProfileName = ""
 #if os(macOS)
@@ -42,6 +43,9 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingConnections) {
             ConnectionsView(controller: controller)
+        }
+        .sheet(isPresented: $showingDNS) {
+            DNSSettingsView(controller: controller)
         }
         .alert("New Profile", isPresented: $showingNewProfile) {
             TextField("Name", text: $newProfileName)
@@ -251,6 +255,11 @@ struct ServerListView: View {
                 showingConnections = true
             } label: {
                 Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            Button {
+                showingDNS = true
+            } label: {
+                Label("DNS", systemImage: "arrow.triangle.branch")
             }
             Button {
                 showingLogs = true
