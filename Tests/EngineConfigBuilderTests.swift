@@ -20,7 +20,11 @@ struct EngineConfigBuilderTests {
         let route = json["route"] as! [String: Any]
         #expect(route["final"] as? String == "out")
         #expect(route["auto_detect_interface"] as? Bool == true)
-        #expect((route["rules"] as! [[String: Any]]).isEmpty)
+        // Without user rules, sniffing is the only production rule.
+        let rules = route["rules"] as! [[String: Any]]
+        #expect(rules.count == 1)
+        #expect(rules[0]["action"] as? String == "sniff")
+        #expect(route["rule_set"] == nil)
     }
 
     @Test
@@ -424,6 +428,115 @@ struct EngineConfigBuilderTests {
         #expect(servers.isEmpty)
         #expect(dns["rules"] == nil)
         #expect(dns["final"] == nil)
+    }
+
+    @Test
+    func userRulesEmitInOrderAfterSniffAndDNSHijack() throws {
+        let serverID = UUID(uuidString: "AAAAAAAA-1111-2222-3333-444444444444")!
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(id: serverID, name: "A", host: "198.51.100.1", port: 443,
+                                   transport: "trojan", credentials: "pw")],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"],
+            rules: [
+                RoutingRule(domains: ["ads.example.com"], ports: [80, 443],
+                            action: .route, outboundID: serverID),
+                RoutingRule(domainSuffixes: ["blocked.example"], invert: true, action: .reject),
+                RoutingRule(ipCIDRs: ["10.0.0.0/8"], action: .direct),
+            ]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let rules = (json["route"] as! [String: Any])["rules"] as! [[String: Any]]
+        // Sniff, then DNS hijack, then the user's rules in order.
+        #expect(rules.count == 5)
+        #expect(rules[0]["action"] as? String == "sniff")
+        #expect(rules[1]["action"] as? String == "hijack-dns")
+
+        #expect(rules[2]["outbound"] as? String == serverID.uuidString)
+        #expect(rules[2]["domain"] as? [String] == ["ads.example.com"])
+        #expect(rules[2]["port"] as? [Int] == [80, 443])
+
+        #expect(rules[3]["action"] as? String == "reject")
+        #expect(rules[3]["domain_suffix"] as? [String] == ["blocked.example"])
+        #expect(rules[3]["invert"] as? Bool == true)
+
+        #expect(rules[4]["action"] as? String == "direct")
+        #expect(rules[4]["ip_cidr"] as? [String] == ["10.0.0.0/8"])
+    }
+
+    @Test
+    func routelessRulesTargetTheTopSelector() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"],
+            rules: [RoutingRule(domainKeywords: ["banking"])]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let rules = (json["route"] as! [String: Any])["rules"] as! [[String: Any]]
+        let last = rules.last!
+        #expect(last["outbound"] as? String == "out")
+        #expect(last["domain_keyword"] as? [String] == ["banking"])
+    }
+
+    @Test
+    func remoteRuleSetsEmitWithTagsAndFormats() throws {
+        let setA = RemoteRuleSet(id: UUID(uuidString: "11111111-bbbb-cccc-dddd-000000000001")!,
+                                 name: "Ads", url: "https://example.com/ads.json")
+        let setB = RemoteRuleSet(id: UUID(uuidString: "11111111-bbbb-cccc-dddd-000000000002")!,
+                                 name: "Regions", url: "https://example.com/geo.srs",
+                                 updateInterval: 43200)
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"],
+            rules: [RoutingRule(ruleSetTags: [setA.id.uuidString], action: .reject)],
+            ruleSets: [setA, setB]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let route = json["route"] as! [String: Any]
+        let sets = route["rule_set"] as! [[String: Any]]
+        #expect(sets.count == 2)
+        #expect(sets[0]["type"] as? String == "remote")
+        #expect(sets[0]["tag"] as? String == setA.id.uuidString)
+        #expect(sets[0]["url"] as? String == "https://example.com/ads.json")
+        #expect(sets[0]["format"] as? String == "source")
+        #expect(sets[0]["update_interval"] as? String == "86400s")
+        #expect(sets[1]["format"] as? String == "binary")
+        #expect(sets[1]["update_interval"] as? String == "43200s")
+
+        let rules = route["rules"] as! [[String: Any]]
+        #expect(rules.last!["rule_set"] as? [String] == [setA.id.uuidString])
+    }
+
+    @Test
+    func harnessModeIgnoresUserRules() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"],
+            rules: [RoutingRule(domainSuffixes: ["example.com"], action: .reject)],
+            ruleSets: [RemoteRuleSet(name: "X", url: "https://example.com/x.json")]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: false))
+        let route = json["route"] as! [String: Any]
+        let rules = route["rules"] as! [[String: Any]]
+        // Only the harness's own port-53 hijack and catch-all route rules.
+        #expect(rules.count == 2)
+        #expect(route["rule_set"] == nil)
+    }
+
+    @Test
+    func emptyAndBlankRulesAreSkipped() throws {
+        var config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        )
+        config.rules = [RoutingRule(), RoutingRule(invert: true)]
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let rules = (json["route"] as! [String: Any])["rules"] as! [[String: Any]]
+        #expect(rules.count == 2) // sniff + hijack-dns only
     }
 
     @Test

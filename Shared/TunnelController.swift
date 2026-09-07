@@ -311,6 +311,26 @@ final class TunnelController {
         persist()
     }
 
+    // MARK: - Rules
+
+    func updateRules(_ rules: [RoutingRule]) {
+        configuration.rules = rules
+        persist()
+    }
+
+    func moveRule(_ rule: RoutingRule, up: Bool) {
+        guard let index = configuration.rules.firstIndex(where: { $0.id == rule.id }) else { return }
+        let target = up ? index - 1 : index + 1
+        guard configuration.rules.indices.contains(target) else { return }
+        configuration.rules.swapAt(index, target)
+        persist()
+    }
+
+    func updateRuleSets(_ sets: [RemoteRuleSet]) {
+        configuration.ruleSets = sets
+        persist()
+    }
+
     // MARK: - Import
 
     /// Adds servers parsed from share-link text, skipping duplicates.

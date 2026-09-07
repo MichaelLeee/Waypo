@@ -272,6 +272,71 @@ struct TunnelConfigurationTests {
     }
 
     @Test
+    func rulesRoundTrip() throws {
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            rules: [
+                RoutingRule(domains: ["ads.example.com"], ports: [80, 443],
+                            action: .reject),
+                RoutingRule(ipCIDRs: ["10.0.0.0/8"], invert: true,
+                            action: .route, outboundID: UUID()),
+            ],
+            ruleSets: [RemoteRuleSet(name: "Ads", url: "https://example.com/ads.json",
+                                     updateInterval: 21600)]
+        )
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: data)
+        #expect(decoded == config)
+        #expect(decoded.rules.count == 2)
+        #expect(decoded.rules[0].action == .reject)
+        #expect(decoded.rules[1].invert)
+        #expect(decoded.ruleSets[0].name == "Ads")
+    }
+
+    @Test
+    func decodeWithoutRulesKeepsEmptyLists() throws {
+        // Configurations persisted before rules existed must still load.
+        let json = #"{"servers":[],"mtu":1500,"dnsAddresses":["1.1.1.1"]}"#
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.rules.isEmpty)
+        #expect(decoded.ruleSets.isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func controllerRulesAndOrderingPersist() throws {
+        let suite = "test.waypo.controller.rules"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let first = RoutingRule(domainSuffixes: ["a.example"], action: .reject)
+        let second = RoutingRule(domainKeywords: ["bank"], action: .direct)
+        controller.updateRules([first, second])
+        #expect(controller.configuration.rules.map(\.id) == [first.id, second.id])
+
+        controller.moveRule(second, up: true)
+        #expect(controller.configuration.rules.map(\.id) == [second.id, first.id])
+        // Moving the top rule up is a no-op.
+        controller.moveRule(second, up: true)
+        #expect(controller.configuration.rules.map(\.id) == [second.id, first.id])
+
+        let set = RemoteRuleSet(name: "Ads", url: "https://example.com/ads.json")
+        controller.updateRuleSets([set])
+        #expect(controller.configuration.ruleSets == [set])
+
+        // Everything survived persistence.
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.configuration.rules.map(\.id) == [second.id, first.id])
+        #expect(reloaded.configuration.ruleSets == [set])
+    }
+
+    @Test
     @MainActor
     func controllerGroupCRUDAndSelection() throws {
         let suite = "test.waypo.controller.groups"

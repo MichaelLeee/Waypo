@@ -206,6 +206,71 @@ struct DNSHostMapping: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+/// One ordered routing rule. Matching criteria combine with AND; every
+/// listed value within one criterion matches as OR. Empty rules are ignored
+/// by the config builder.
+struct RoutingRule: Hashable, Sendable, Codable, Identifiable {
+    enum Action: String, Codable, CaseIterable, Sendable {
+        case route
+        case reject
+        case direct
+    }
+
+    var id: UUID = UUID()
+    var domains: [String] = []
+    var domainSuffixes: [String] = []
+    var domainKeywords: [String] = []
+    /// IP networks in CIDR form.
+    var ipCIDRs: [String] = []
+    var ports: [Int] = []
+    /// Tags of rule-sets this rule matches against.
+    var ruleSetTags: [String] = []
+    /// Negates the whole match.
+    var invert = false
+    var action: Action = .route
+    /// Route target for `.route`: a server or group id; nil is the top
+    /// selector (the active endpoint).
+    var outboundID: UUID?
+
+    var matchesSomething: Bool {
+        !domains.isEmpty || !domainSuffixes.isEmpty || !domainKeywords.isEmpty
+            || !ipCIDRs.isEmpty || !ports.isEmpty || !ruleSetTags.isEmpty
+    }
+
+    init(id: UUID = UUID(), domains: [String] = [], domainSuffixes: [String] = [],
+         domainKeywords: [String] = [], ipCIDRs: [String] = [], ports: [Int] = [],
+         ruleSetTags: [String] = [], invert: Bool = false, action: Action = .route,
+         outboundID: UUID? = nil) {
+        self.id = id
+        self.domains = domains
+        self.domainSuffixes = domainSuffixes
+        self.domainKeywords = domainKeywords
+        self.ipCIDRs = ipCIDRs
+        self.ports = ports
+        self.ruleSetTags = ruleSetTags
+        self.invert = invert
+        self.action = action
+        self.outboundID = outboundID
+    }
+}
+
+/// A remote rule-set the engine downloads and refreshes itself.
+struct RemoteRuleSet: Hashable, Sendable, Codable, Identifiable {
+    var id: UUID = UUID()
+    /// Display name; the engine references the set by its generated tag.
+    var name: String
+    var url: String
+    /// Seconds between refreshes; the engine default is one day.
+    var updateInterval: TimeInterval = 86400
+
+    init(id: UUID = UUID(), name: String, url: String, updateInterval: TimeInterval = 86400) {
+        self.id = id
+        self.name = name
+        self.url = url
+        self.updateInterval = updateInterval
+    }
+}
+
 struct TunnelConfiguration: Hashable, Sendable {
     var servers: [TunnelServer]
     var groups: [PolicyGroup] = []
@@ -215,6 +280,9 @@ struct TunnelConfiguration: Hashable, Sendable {
     var fakeIPEnabled = false
     /// Domain suffixes that never receive fake addresses.
     var fakeIPExclusions: [String] = []
+    /// Ordered routing rules, evaluated before the final outbound.
+    var rules: [RoutingRule] = []
+    var ruleSets: [RemoteRuleSet] = []
 
     /// Plain resolver addresses, for consumers that only need hosts
     /// (the system tunnel settings). Assigning converts to UDP resolvers.
@@ -226,7 +294,8 @@ struct TunnelConfiguration: Hashable, Sendable {
     init(servers: [TunnelServer], groups: [PolicyGroup] = [], mtu: Int,
          dnsAddresses: [String] = [], dnsResolvers: [DNSResolver]? = nil,
          dnsHosts: [DNSHostMapping] = [], fakeIPEnabled: Bool = false,
-         fakeIPExclusions: [String] = []) {
+         fakeIPExclusions: [String] = [], rules: [RoutingRule] = [],
+         ruleSets: [RemoteRuleSet] = []) {
         self.servers = servers
         self.groups = groups
         self.mtu = mtu
@@ -236,6 +305,8 @@ struct TunnelConfiguration: Hashable, Sendable {
         self.dnsHosts = dnsHosts
         self.fakeIPEnabled = fakeIPEnabled
         self.fakeIPExclusions = fakeIPExclusions
+        self.rules = rules
+        self.ruleSets = ruleSets
     }
 
     static let `default` = TunnelConfiguration(
@@ -253,6 +324,7 @@ extension TunnelConfiguration: Codable {
     enum CodingKeys: String, CodingKey {
         case servers, groups, mtu
         case dnsResolvers, dnsHosts, fakeIPEnabled, fakeIPExclusions
+        case rules, ruleSets
         case dnsAddresses
     }
 
@@ -267,11 +339,14 @@ extension TunnelConfiguration: Codable {
             try container.encode(fakeIPEnabled, forKey: .fakeIPEnabled)
             try container.encode(fakeIPExclusions, forKey: .fakeIPExclusions)
         }
+        try container.encode(rules, forKey: .rules)
+        try container.encode(ruleSets, forKey: .ruleSets)
     }
 
-    /// `groups` and the DNS settings postdate the original persistence
-    /// format, so older saved configurations decode with defaults; the
-    /// original plain `dnsAddresses` list converts to UDP resolvers.
+    /// `groups`, the DNS settings, and the rules postdate the original
+    /// persistence format, so older saved configurations decode with
+    /// defaults; the original plain `dnsAddresses` list converts to UDP
+    /// resolvers.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         servers = try container.decode([TunnelServer].self, forKey: .servers)
@@ -287,5 +362,7 @@ extension TunnelConfiguration: Codable {
         dnsHosts = try container.decodeIfPresent([DNSHostMapping].self, forKey: .dnsHosts) ?? []
         fakeIPEnabled = try container.decodeIfPresent(Bool.self, forKey: .fakeIPEnabled) ?? false
         fakeIPExclusions = try container.decodeIfPresent([String].self, forKey: .fakeIPExclusions) ?? []
+        rules = try container.decodeIfPresent([RoutingRule].self, forKey: .rules) ?? []
+        ruleSets = try container.decodeIfPresent([RemoteRuleSet].self, forKey: .ruleSets) ?? []
     }
 }

@@ -286,13 +286,49 @@ enum EngineConfigBuilder {
             outbounds = [selector] + groupOutbounds + serverOutbounds + [["type": "direct", "tag": "direct-out"]]
         }
 
+        // User-authored rules evaluate in order before the final outbound.
+        // Sniffing must come first so domain criteria can match traffic
+        // whose destination is an IP address.
+        var userRuleSets: [[String: Any]] = []
+        for set in configuration.ruleSets where !set.url.isEmpty {
+            userRuleSets.append([
+                "type": "remote",
+                "tag": set.id.uuidString,
+                "url": set.url,
+                "format": set.url.hasSuffix(".srs") ? "binary" : "source",
+                "update_interval": "\(Int(set.updateInterval))s",
+            ])
+        }
+        var userRules: [[String: Any]] = []
+        for rule in configuration.rules where rule.matchesSomething {
+            var entry: [String: Any] = [:]
+            if !rule.domains.isEmpty { entry["domain"] = rule.domains }
+            if !rule.domainSuffixes.isEmpty { entry["domain_suffix"] = rule.domainSuffixes }
+            if !rule.domainKeywords.isEmpty { entry["domain_keyword"] = rule.domainKeywords }
+            if !rule.ipCIDRs.isEmpty { entry["ip_cidr"] = rule.ipCIDRs }
+            if !rule.ports.isEmpty { entry["port"] = rule.ports }
+            if !rule.ruleSetTags.isEmpty { entry["rule_set"] = rule.ruleSetTags }
+            if rule.invert { entry["invert"] = true }
+            switch rule.action {
+            case .route:
+                // nil means the top-level selector (the active endpoint).
+                entry["outbound"] = rule.outboundID?.uuidString ?? "out"
+            case .reject:
+                entry["action"] = "reject"
+            case .direct:
+                entry["action"] = "direct"
+            }
+            userRules.append(entry)
+        }
+
         let routeRules: [[String: Any]]
         var route: [String: Any] = ["final": "out"]
         switch inbound {
         case .tun(true):
             // DNS hijacking only makes sense in production, where the device
             // DNS servers sit behind the tunnel.
-            routeRules = [["protocol": "dns", "action": "hijack-dns"]]
+            routeRules = [["action": "sniff"],
+                          ["protocol": "dns", "action": "hijack-dns"]] + userRules
             route["auto_detect_interface"] = true
         case .tun(false):
             // Harness mode: anything addressed to port 53 goes to the
@@ -326,10 +362,13 @@ enum EngineConfigBuilder {
             // dialer to lo0 makes local delivery deterministic.
             route["default_interface"] = "lo0"
         case .mixedListener:
-            routeRules = []
+            routeRules = [["action": "sniff"]] + userRules
             route["auto_detect_interface"] = true
         }
         route["rules"] = routeRules
+        if !userRuleSets.isEmpty {
+            route["rule_set"] = userRuleSets
+        }
 
         let logLevel: String
         switch inbound {
