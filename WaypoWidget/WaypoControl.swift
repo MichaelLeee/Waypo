@@ -12,7 +12,7 @@ struct WaypoControl: ControlWidget {
             ControlWidgetToggle(
                 "Tunnel",
                 isOn: currentControlState,
-                action: ToggleTunnelIntent()
+                action: SetTunnelStateIntent()
             ) { isOn in
                 Label("Tunnel", systemImage: isOn ? "shield.fill" : "shield")
             }
