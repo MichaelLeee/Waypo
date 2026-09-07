@@ -1,55 +1,102 @@
-//
-//  WaypoWidget.swift
-//  WaypoWidget
-//
-//  Created by Michael on 9/7/26.
-//
-
-import WidgetKit
+import NetworkExtension
 import SwiftUI
+import WidgetKit
 
-struct Provider: AppIntentTimelineProvider {
-    func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), configuration: ConfigurationAppIntent())
-    }
-
-    func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> SimpleEntry {
-        SimpleEntry(date: Date(), configuration: configuration)
-    }
-    
-    func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SimpleEntry> {
-        var entries: [SimpleEntry] = []
-
-        // Generate a timeline consisting of five entries an hour apart, starting from the current date.
-        let currentDate = Date()
-        for hourOffset in 0 ..< 5 {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
-            let entry = SimpleEntry(date: entryDate, configuration: configuration)
-            entries.append(entry)
-        }
-
-        return Timeline(entries: entries, policy: .atEnd)
-    }
-
-//    func relevances() async -> WidgetRelevances<ConfigurationAppIntent> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
-}
-
-struct SimpleEntry: TimelineEntry {
+struct TunnelEntry: TimelineEntry {
     let date: Date
-    let configuration: ConfigurationAppIntent
+    let status: NEVPNStatus
+    let profileName: String
+    let serverName: String?
 }
 
-struct WaypoWidgetEntryView : View {
-    var entry: Provider.Entry
+/// Reads the status mirror and active profile from the shared store. The
+/// widget process cannot load the profile manager, so the app and the
+/// provider extension publish their status transitions instead.
+private func currentEntry(date: Date) -> TunnelEntry {
+    let store = TunnelStore()
+    let status = store.loadStatusMirror().flatMap(NEVPNStatus.init(rawValue:)) ?? .disconnected
+    let profile = store.loadProfileSet().activeProfile
+    return TunnelEntry(
+        date: date,
+        status: status,
+        profileName: profile?.name ?? "Default",
+        serverName: profile?.configuration.servers.first?.name
+    )
+}
+
+struct TunnelStatusProvider: TimelineProvider {
+    func placeholder(in context: Context) -> TunnelEntry {
+        currentEntry(date: .now)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (TunnelEntry) -> Void) {
+        completion(currentEntry(date: .now))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<TunnelEntry>) -> Void) {
+        // Status transitions trigger explicit timeline reloads; this slow
+        // refresh only catches transitions nothing observed.
+        completion(Timeline(entries: [currentEntry(date: .now)],
+                            policy: .after(.now.addingTimeInterval(15 * 60))))
+    }
+}
+
+struct WaypoWidgetEntryView: View {
+    var entry: TunnelEntry
+
+    private var isBusy: Bool {
+        entry.status == .connecting || entry.status == .disconnecting || entry.status == .reasserting
+    }
+
+    private var statusColor: Color {
+        switch entry.status {
+        case .connected: .green
+        case .connecting, .disconnecting, .reasserting: .orange
+        default: .secondary
+        }
+    }
+
+    private var statusText: String {
+        switch entry.status {
+        case .connected: "Connected"
+        case .connecting: "Connecting…"
+        case .disconnecting: "Disconnecting…"
+        case .reasserting: "Reasserting…"
+        case .invalid: "Not installed"
+        default: "Disconnected"
+        }
+    }
 
     var body: some View {
-        Text("Time:")
-        Text(entry.date, style: .time)
-
-        Text("Favorite Emoji:")
-        Text(entry.configuration.favoriteEmoji)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "shield.fill")
+                    .font(.title3)
+                    .foregroundStyle(statusColor)
+                Text(entry.profileName)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Button(intent: ToggleTunnelIntent()) {
+                    Image(systemName: entry.status == .connected ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.title)
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(statusColor)
+            }
+            Spacer(minLength: 0)
+            Text(statusText)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(statusColor)
+            if let server = entry.serverName {
+                Text(server)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .containerBackground(.fill.tertiary, for: .widget)
     }
 }
 
@@ -57,30 +104,18 @@ struct WaypoWidget: Widget {
     let kind: String = "WaypoWidget"
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: ConfigurationAppIntent.self, provider: Provider()) { entry in
+        StaticConfiguration(kind: kind, provider: TunnelStatusProvider()) { entry in
             WaypoWidgetEntryView(entry: entry)
-                .containerBackground(.fill.tertiary, for: .widget)
         }
-    }
-}
-
-extension ConfigurationAppIntent {
-    fileprivate static var smiley: ConfigurationAppIntent {
-        let intent = ConfigurationAppIntent()
-        intent.favoriteEmoji = "😀"
-        return intent
-    }
-    
-    fileprivate static var starEyes: ConfigurationAppIntent {
-        let intent = ConfigurationAppIntent()
-        intent.favoriteEmoji = "🤩"
-        return intent
+        .configurationDisplayName("Connection")
+        .description("Shows the tunnel status and toggles it.")
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 
 #Preview(as: .systemSmall) {
     WaypoWidget()
 } timeline: {
-    SimpleEntry(date: .now, configuration: .smiley)
-    SimpleEntry(date: .now, configuration: .starEyes)
+    TunnelEntry(date: .now, status: .connected, profileName: "Home", serverName: "Tokyo")
+    TunnelEntry(date: .now, status: .disconnected, profileName: "Home", serverName: nil)
 }

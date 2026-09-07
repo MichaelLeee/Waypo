@@ -73,8 +73,22 @@ struct TunnelStore {
         try data.write(to: directory.appendingPathComponent("tunnel-configuration.json"), options: .atomic)
     }
 
+    // MARK: - Connection status mirror
+
+    /// The app and the provider extension write the live status here so the
+    /// widget can render it without loading the profile manager, which a
+    /// widget process cannot do.
+    func saveStatusMirror(_ rawValue: Int) {
+        defaults?.set(rawValue, forKey: Keys.statusMirror)
+    }
+
+    func loadStatusMirror() -> Int? {
+        defaults?.object(forKey: Keys.statusMirror) as? Int
+    }
+
     private enum Keys {
         static let configuration = "tunnelConfiguration"
         static let profiles = "tunnelProfiles"
+        static let statusMirror = "tunnelStatusMirror"
     }
 }

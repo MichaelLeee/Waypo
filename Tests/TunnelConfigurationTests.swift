@@ -1,4 +1,5 @@
 import Foundation
+import NetworkExtension
 import Testing
 
 @Suite
@@ -334,6 +335,20 @@ struct TunnelConfigurationTests {
         reloaded.reloadProfiles()
         #expect(reloaded.configuration.rules.map(\.id) == [second.id, first.id])
         #expect(reloaded.configuration.ruleSets == [set])
+    }
+
+    @Test
+    func statusMirrorRoundTrip() throws {
+        let suite = "test.waypo.store.status-mirror"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        #expect(store.loadStatusMirror() == nil)
+        store.saveStatusMirror(NEVPNStatus.connected.rawValue)
+        #expect(store.loadStatusMirror() == NEVPNStatus.connected.rawValue)
+        store.saveStatusMirror(NEVPNStatus.disconnected.rawValue)
+        #expect(store.loadStatusMirror() == NEVPNStatus.disconnected.rawValue)
     }
 
     @Test

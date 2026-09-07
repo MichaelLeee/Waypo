@@ -12,6 +12,7 @@
 		4CB32172304F20D8003DEFBC /* WaypoWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4CB32160304F20D6003DEFBC /* WaypoWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA0000000000000000000050 /* WaypoTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000A /* WaypoTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA0000000000000000000051 /* WaypoTunnelMac.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000B /* WaypoTunnelMac.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA000000000000000000005E /* WaypoWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4CB32160304F20D6003DEFBC /* WaypoWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,6 +37,13 @@
 			remoteGlobalIDString = AA0000000000000000000013;
 			remoteInfo = WaypoTunnelMac;
 		};
+		AA000000000000000000005F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4CB3215F304F20D6003DEFBC;
+			remoteInfo = WaypoWidgetExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -58,6 +66,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				AA0000000000000000000051 /* WaypoTunnelMac.appex in Embed Foundation Extensions */,
+				AA000000000000000000005E /* WaypoWidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -82,6 +91,13 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+			);
+			target = 4CB3215F304F20D6003DEFBC /* WaypoWidgetExtension */;
+		};
+		AA000000000000000000005D /* Exceptions for "Shared" folder in "WaypoWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				TunnelIntents.swift,
 			);
 			target = 4CB3215F304F20D6003DEFBC /* WaypoWidgetExtension */;
 		};
@@ -112,6 +128,9 @@
 		};
 		AA0000000000000000000004 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AA000000000000000000005D /* Exceptions for "Shared" folder in "WaypoWidgetExtension" target */,
+			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -257,6 +276,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				4CB32166304F20D6003DEFBC /* WaypoWidget */,
+				AA0000000000000000000004 /* Shared */,
 			);
 			name = WaypoWidgetExtension;
 			packageProductDependencies = (
@@ -302,6 +322,7 @@
 			);
 			dependencies = (
 				AA0000000000000000000024 /* PBXTargetDependency */,
+				AA0000000000000000000060 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA0000000000000000000004 /* Shared */,
@@ -555,6 +576,11 @@
 			isa = PBXTargetDependency;
 			target = AA0000000000000000000013 /* WaypoTunnelMac */;
 			targetProxy = AA0000000000000000000025 /* PBXContainerItemProxy */;
+		};
+		AA0000000000000000000060 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4CB3215F304F20D6003DEFBC /* WaypoWidgetExtension */;
+			targetProxy = AA000000000000000000005F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 

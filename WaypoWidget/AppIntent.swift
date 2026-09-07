@@ -1,18 +1,20 @@
-//
-//  AppIntent.swift
-//  WaypoWidget
-//
-//  Created by Michael on 9/7/26.
-//
-
-import WidgetKit
 import AppIntents
+import Foundation
 
-struct ConfigurationAppIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource { "Configuration" }
-    static var description: IntentDescription { "This is an example widget." }
+/// Runs inside the widget or control process and drives the shared profile
+/// manager through TunnelController, so the button works without opening
+/// the app.
+struct ToggleTunnelIntent: AppIntent {
+    static let title: LocalizedStringResource = "Toggle Tunnel"
+    static let description = IntentDescription("Connects or disconnects the tunnel.")
+    static let openAppWhenRun = false
 
-    // An example configurable parameter.
-    @Parameter(title: "Favorite Emoji", default: "😃")
-    var favoriteEmoji: String
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let controller = TunnelController()
+        await controller.refresh()
+        let wasActive = controller.isActive
+        await controller.toggle()
+        return .result(dialog: wasActive ? IntentDialog("Disconnecting") : IntentDialog("Connecting"))
+    }
 }

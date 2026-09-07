@@ -1,5 +1,6 @@
 @preconcurrency import NetworkExtension
 import os
+import WidgetKit
 
 /// The framework hands out completion handlers without Sendable annotations.
 /// Each one is invoked exactly once from a single task, so boxing it keeps the
@@ -55,9 +56,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             do {
                 try await engine.start(configuration: config, packetFlow: packetFlow)
                 logger.info("tunnel up (real engine)")
+                TunnelStore().saveStatusMirror(NEVPNStatus.connected.rawValue)
+                WidgetCenter.shared.reloadAllTimelines()
                 completion(nil)
             } catch {
                 logger.error("engine start failed: \(error.localizedDescription, privacy: .public)")
+                TunnelStore().saveStatusMirror(NEVPNStatus.disconnected.rawValue)
+                WidgetCenter.shared.reloadAllTimelines()
                 completion(error)
             }
         }
@@ -91,6 +96,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 do {
                     try await engine.start(configuration: config, packetFlow: flow)
                     logger.info("tunnel up (engine running)")
+                    TunnelStore().saveStatusMirror(NEVPNStatus.connected.rawValue)
+                    WidgetCenter.shared.reloadAllTimelines()
                     completion(nil)
                 } catch {
                     completion(error)
@@ -102,6 +109,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         logger.info("stopping tunnel, reason=\(reason.rawValue)")
+        TunnelStore().saveStatusMirror(NEVPNStatus.disconnected.rawValue)
+        WidgetCenter.shared.reloadAllTimelines()
 #if canImport(Libbox)
         let engine = engineHolder.get()
         engineHolder.set(nil)

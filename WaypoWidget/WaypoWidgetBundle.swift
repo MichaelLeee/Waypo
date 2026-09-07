@@ -1,16 +1,12 @@
-//
-//  WaypoWidgetBundle.swift
-//  WaypoWidget
-//
-//  Created by Michael on 9/7/26.
-//
-
-import WidgetKit
 import SwiftUI
+import WidgetKit
 
 @main
 struct WaypoWidgetBundle: WidgetBundle {
-    var body: some Widget {
+    var body: some WidgetBundle {
         WaypoWidget()
+        #if os(iOS)
+        WaypoControl()
+        #endif
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import NetworkExtension
 import Observation
+import WidgetKit
 
 /// App-side control of the tunnel profile and connection.
 @MainActor
@@ -15,6 +16,10 @@ final class TunnelController {
             } else if status != .connected {
                 connectedSince = nil
             }
+            // Mirror the status for the widget, which cannot read the
+            // profile manager itself.
+            store.saveStatusMirror(status.rawValue)
+            WidgetCenter.shared.reloadAllTimelines()
             updateStatsPolling()
         }
     }
