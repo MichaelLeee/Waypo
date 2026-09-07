@@ -1,5 +1,4 @@
 import Testing
-@testable import Waypo
 
 @Suite
 struct ConnectionTrackerTests {
