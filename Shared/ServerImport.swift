@@ -5,6 +5,10 @@ import Foundation
 /// hysteria2 (and its hy2 alias), tuic, vmess (base64-JSON body).
 enum ServerImport {
     static func parse(_ text: String) -> [TunnelServer] {
+        if looksLikeYAML(text) {
+            let parsed = parseYAML(text)
+            if !parsed.isEmpty { return parsed }
+        }
         let lines = text
             .split(whereSeparator: \.isNewline)
             .compactMap { parseLine($0.trimmingCharacters(in: .whitespaces)) }
@@ -251,5 +255,114 @@ enum ServerImport {
             credentials: String(decoded[decoded.index(after: userInfoColon)..<at]),
             cipher: String(decoded[..<userInfoColon])
         )
+    }
+
+    // MARK: - Community YAML configuration
+
+    private static func looksLikeYAML(_ text: String) -> Bool {
+        // A top-level `proxies:` key at column zero is the community format.
+        text.split(whereSeparator: \.isNewline).contains { $0.hasPrefix("proxies:") }
+    }
+
+    static func parseYAML(_ text: String) -> [TunnelServer] {
+        guard let document = SubscriptionYAML.parseDocument(text),
+              let proxies = document["proxies"] as? [[String: Any]]
+        else { return [] }
+        return proxies.compactMap(server(fromProxy:))
+    }
+
+    private static func server(fromProxy proxy: [String: Any]) -> TunnelServer? {
+        guard let host = stringField(proxy, "server"), !host.isEmpty,
+              let port = intField(proxy, "port"),
+              let rawType = stringField(proxy, "type")?.lowercased()
+        else { return nil }
+
+        let transport: String
+        switch rawType {
+        case "ss", "shadowsocks": transport = "shadowsocks"
+        case "hysteria2", "hy2": transport = "hysteria2"
+        case "trojan", "vless", "vmess", "tuic": transport = rawType
+        default: return nil
+        }
+
+        let overlay = stringField(proxy, "network")?.lowercased()
+        let network: String? = overlay == "ws" || overlay == "grpc" ? overlay : nil
+        var wsPath: String?
+        var wsHost: String?
+        if network == "ws", let options = proxy["ws-opts"] as? [String: Any] {
+            wsPath = stringField(options, "path")
+            if let headers = options["headers"] as? [String: Any] {
+                wsHost = stringField(headers, "Host") ?? stringField(headers, "host")
+            }
+        }
+        var serviceName: String?
+        if network == "grpc", let options = proxy["grpc-opts"] as? [String: Any] {
+            serviceName = stringField(options, "grpc-service-name")
+        }
+
+        let alpn: String?
+        switch proxy["alpn"] {
+        case let values as [Any]:
+            let names = values.compactMap(anyString)
+            alpn = names.isEmpty ? nil : names.joined(separator: ", ")
+        case let single as String:
+            alpn = single.isEmpty ? nil : single
+        default: alpn = nil
+        }
+
+        let reality = proxy["reality-opts"] as? [String: Any]
+        let useTLS = boolField(proxy, "tls") || reality != nil
+            || transport == "trojan" || transport == "hysteria2" || transport == "tuic"
+
+        var obfs = stringField(proxy, "obfs")
+        var obfsPassword = stringField(proxy, "obfs-password")
+        if stringField(proxy, "plugin")?.lowercased() == "obfs",
+           let options = proxy["plugin-opts"] as? [String: Any] {
+            obfs = stringField(options, "mode")
+            obfsPassword = stringField(options, "password")
+        }
+
+        return TunnelServer(
+            name: stringField(proxy, "name") ?? host,
+            host: host,
+            port: port,
+            transport: transport,
+            credentials: stringField(proxy, "password") ?? stringField(proxy, "uuid"),
+            cipher: stringField(proxy, "cipher"),
+            useTLS: useTLS,
+            serverName: stringField(proxy, "sni") ?? stringField(proxy, "servername")
+                ?? stringField(proxy, "server-name"),
+            network: network,
+            wsPath: wsPath,
+            wsHost: wsHost,
+            serviceName: serviceName,
+            flow: stringField(proxy, "flow"),
+            realityPublicKey: reality.flatMap { stringField($0, "public-key") },
+            realityShortID: reality.flatMap { stringField($0, "short-id") },
+            obfs: obfs,
+            obfsPassword: obfsPassword,
+            allowInsecure: boolField(proxy, "skip-cert-verify"),
+            uuid: stringField(proxy, "uuid"),
+            alpn: alpn,
+            congestionControl: stringField(proxy, "congestion-controller"),
+            alterId: intField(proxy, "alterId")
+        )
+    }
+
+    private static func anyString(_ value: Any?) -> String? {
+        if let value = value as? String { return value.isEmpty ? nil : value }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func stringField(_ json: [String: Any], _ key: String) -> String? {
+        anyString(json[key])
+    }
+
+    private static func boolField(_ json: [String: Any], _ key: String) -> Bool {
+        if let flag = json[key] as? Bool { return flag }
+        if let number = json[key] as? NSNumber { return number.boolValue }
+        if let text = json[key] as? String { return ["true", "1", "yes"].contains(text.lowercased()) }
+        return false
     }
 }

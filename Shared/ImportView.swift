@@ -42,9 +42,9 @@ struct ImportView: View {
                         .font(.system(.footnote, design: .monospaced))
                         .autocorrectionDisabled()
                 } header: {
-                    Text("Paste share links, one per line")
+                    Text("Paste share links or a configuration file")
                 } footer: {
-                    Text("Supported: trojan, vless, ss.")
+                    Text("Supported: trojan, vless, ss, hysteria2, tuic, vmess links, or a community YAML configuration.")
                 }
 
                 if let importError {
@@ -71,7 +71,7 @@ struct ImportView: View {
         }
         .fileImporter(
             isPresented: $showingFileImporter,
-            allowedContentTypes: [.text, .json]
+            allowedContentTypes: [.text, .json, .yaml]
         ) { handleFile($0) }
     }
 
