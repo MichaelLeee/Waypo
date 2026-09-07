@@ -355,10 +355,6 @@ enum ServerImport {
         return nil
     }
 
-    private static func stringField(_ json: [String: Any], _ key: String) -> String? {
-        anyString(json[key])
-    }
-
     private static func boolField(_ json: [String: Any], _ key: String) -> Bool {
         if let flag = json[key] as? Bool { return flag }
         if let number = json[key] as? NSNumber { return number.boolValue }
