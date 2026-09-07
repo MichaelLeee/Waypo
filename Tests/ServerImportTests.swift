@@ -262,4 +262,152 @@ extension ServerImportTests {
         #expect(server?.useTLS == false)
         #expect(server?.network == nil)
     }
+
+    @Test
+    func wireGuardLink() {
+        // Private key in the link is base64; the parser carries it verbatim.
+        let server = ServerImport.parseLine(
+            "wireguard://d2ctcHJpdjEy@192.0.2.20:51820/?publickey=PUBKEY&address=10.0.0.2%2F32%2Cfd00%3A%3A2%2F128&presharedkey=PSK&reserved=AQID#WG%20Node"
+        )
+        #expect(server?.name == "WG Node")
+        #expect(server?.host == "192.0.2.20")
+        #expect(server?.port == 51820)
+        #expect(server?.transport == "wireguard")
+        #expect(server?.wgPrivateKey == "d2ctcHJpdjEy")
+        #expect(server?.wgPeerPublicKey == "PUBKEY")
+        #expect(server?.wgPresharedKey == "PSK")
+        #expect(server?.wgAddresses == "10.0.0.2/32, fd00::2/128")
+        #expect(server?.wgReserved == "AQID")
+    }
+
+    @Test
+    func wireGuardLinkDefaults() {
+        let server = ServerImport.parseLine("wireguard://key@192.0.2.21?publickey=PUB#WG")
+        #expect(server?.port == 51820)
+        #expect(server?.wgPresharedKey == nil)
+        #expect(server?.wgAddresses == nil)
+    }
+
+    @Test
+    func anyTLSLink() {
+        let server = ServerImport.parseLine(
+            "anytls://p%40ss@a.example.com:8443/?sni=sni.example.com&insecure=1&alpn=h2,h3#Any%20Node"
+        )
+        #expect(server?.name == "Any Node")
+        #expect(server?.host == "a.example.com")
+        #expect(server?.port == 8443)
+        #expect(server?.transport == "anytls")
+        #expect(server?.credentials == "p@ss")
+        #expect(server?.useTLS == true)
+        #expect(server?.serverName == "sni.example.com")
+        #expect(server?.allowInsecure == true)
+        #expect(server?.alpn == "h2,h3")
+    }
+
+    @Test
+    func wireGuardQuickConf() throws {
+        let conf = """
+        [Interface]
+        PrivateKey = AbCdEf123456=
+        Address = 10.0.0.2/32
+        Address = fd00::2/128
+        DNS = 1.1.1.1
+
+        [Peer]
+        PublicKey = PeerKeyBase64=
+        PresharedKey = PskBase64=
+        AllowedIPs = 0.0.0.0/0
+        Endpoint = peer.example.com:51821
+        """
+        let servers = ServerImport.parse(conf)
+        #expect(servers.count == 1)
+        let server = try #require(servers.first)
+        #expect(server.name == "WireGuard peer.example.com")
+        #expect(server.host == "peer.example.com")
+        #expect(server.port == 51821)
+        #expect(server.transport == "wireguard")
+        #expect(server.wgPrivateKey == "AbCdEf123456=")
+        #expect(server.wgAddresses == "10.0.0.2/32, fd00::2/128")
+        #expect(server.wgPeerPublicKey == "PeerKeyBase64=")
+        #expect(server.wgPresharedKey == "PskBase64=")
+    }
+
+    @Test
+    func wireGuardQuickConfIPv6EndpointAndDefaultPort() throws {
+        let conf = """
+        [Interface]
+        PrivateKey = k
+        Address = 10.0.0.2/32
+
+        [Peer]
+        PublicKey = p
+        Endpoint = [2001:db8::1]:51820
+        """
+        let server = try #require(ServerImport.parse(conf).first)
+        #expect(server.host == "2001:db8::1")
+        #expect(server.port == 51820)
+        #expect(server.wgPresharedKey == nil)
+    }
+
+    @Test
+    func yamlAnyTLSWireGuardAndShadowTLS() {
+        let yaml = """
+        proxies:
+          - name: Any
+            type: anytls
+            server: 198.51.100.30
+            port: 8443
+            password: any-pass
+            sni: sni.example.com
+            skip-cert-verify: true
+          - name: WG
+            type: wireguard
+            server: 198.51.100.31
+            port: 51820
+            private-key: priv
+            public-key: peer
+            pre-shared-key: psk
+            ip: 10.0.0.2/32
+            ipv6: fd00::2/128
+            reserved: [1, 2, 3]
+          - name: ST
+            type: ss
+            server: 198.51.100.32
+            port: 8443
+            cipher: aes-128-gcm
+            password: inner-pass
+            plugin: shadowtls
+            plugin-opts:
+              host: st.example.com
+              password: st-pass
+              version: 3
+        """
+        let servers = ServerImport.parse(yaml)
+        #expect(servers.count == 3)
+
+        let any = servers[0]
+        #expect(any.transport == "anytls")
+        #expect(any.credentials == "any-pass")
+        #expect(any.useTLS == true)
+        #expect(any.allowInsecure == true)
+        #expect(any.serverName == "sni.example.com")
+
+        let wg = servers[1]
+        #expect(wg.transport == "wireguard")
+        #expect(wg.wgPrivateKey == "priv")
+        #expect(wg.wgPeerPublicKey == "peer")
+        #expect(wg.wgPresharedKey == "psk")
+        #expect(wg.wgAddresses == "10.0.0.2/32, fd00::2/128")
+        #expect(wg.wgReserved == "1,2,3")
+        #expect(wg.useTLS == false)
+
+        let st = servers[2]
+        #expect(st.transport == "shadowtls")
+        #expect(st.host == "st.example.com")
+        #expect(st.shadowTLSPassword == "st-pass")
+        #expect(st.shadowTLSVersion == 3)
+        #expect(st.credentials == "inner-pass")
+        #expect(st.cipher == "aes-128-gcm")
+        #expect(st.useTLS == false)
+    }
 }

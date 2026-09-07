@@ -218,4 +218,105 @@ struct EngineConfigBuilderTests {
         #expect(tags == ["out", urlTestGroupID.uuidString, selectGroupID.uuidString,
                          a.uuidString, b.uuidString, c.uuidString, "direct-out"])
     }
+
+    @Test
+    func wireGuardAnyTLSAndShadowTLSMapTheirOutboundFields() throws {
+        let wgID = UUID(uuidString: "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let anyID = UUID(uuidString: "22222222-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let stID = UUID(uuidString: "33333333-cccc-cccc-cccc-cccccccccccc")!
+        let config = TunnelConfiguration(
+            servers: [
+                TunnelServer(id: wgID, name: "WG", host: "198.51.100.10", port: 51820,
+                             transport: "wireguard",
+                             wgPrivateKey: "wg-priv", wgPeerPublicKey: "wg-peer",
+                             wgPresharedKey: "wg-psk",
+                             wgAddresses: "10.0.0.2/32, fd00::2/128",
+                             wgReserved: "AQID"),
+                TunnelServer(id: anyID, name: "Any", host: "198.51.100.11", port: 8443,
+                             transport: "anytls", credentials: "any-pass"),
+                TunnelServer(id: stID, name: "ST", host: "198.51.100.12", port: 8443,
+                             transport: "shadowtls", credentials: "inner-pass",
+                             cipher: "aes-128-gcm", shadowTLSPassword: "st-pass",
+                             serverName: "st.example.com"),
+            ],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let outbounds = json["outbounds"] as! [[String: Any]]
+        let byTag = Dictionary(uniqueKeysWithValues: outbounds.map { ($0["tag"] as! String, $0) })
+
+        let wg = byTag[wgID.uuidString]!
+        #expect(wg["type"] as? String == "wireguard")
+        #expect(wg["local_address"] as? [String] == ["10.0.0.2/32", "fd00::2/128"])
+        #expect(wg["private_key"] as? String == "wg-priv")
+        #expect(wg["peer_public_key"] as? String == "wg-peer")
+        #expect(wg["pre_shared_key"] as? String == "wg-psk")
+        // Base64 "AQID" decodes to the three bytes 1, 2, 3.
+        #expect(wg["reserved"] as? [Int] == [1, 2, 3])
+        #expect(wg["tls"] == nil)
+
+        let any = byTag[anyID.uuidString]!
+        #expect(any["type"] as? String == "anytls")
+        #expect(any["password"] as? String == "any-pass")
+        // AnyTLS rides on TLS even when the toggle is off.
+        #expect((any["tls"] as! [String: Any])["enabled"] as? Bool == true)
+
+        let outer = byTag[stID.uuidString]!
+        #expect(outer["type"] as? String == "shadowtls")
+        #expect(outer["version"] as? Int == 3)
+        #expect(outer["password"] as? String == "st-pass")
+        let tls = outer["tls"] as! [String: Any]
+        #expect(tls["server_name"] as? String == "st.example.com")
+        #expect((tls["utls"] as! [String: Any])["fingerprint"] as? String == "chrome")
+
+        // The inner Shadowsocks outbound is chained through the outer one,
+        // and group members point at that usable leg.
+        let innerTag = stID.uuidString + "-inner"
+        let inner = byTag[innerTag]!
+        #expect(inner["type"] as? String == "shadowsocks")
+        #expect(inner["method"] as? String == "aes-128-gcm")
+        #expect(inner["password"] as? String == "inner-pass")
+        #expect(inner["detour"] as? String == stID.uuidString)
+
+        let selector = outbounds.first { $0["tag"] as? String == "out" }!
+        #expect(selector["outbounds"] as? [String] ==
+                [wgID.uuidString, anyID.uuidString, innerTag])
+        #expect(selector["default"] as? String == wgID.uuidString)
+    }
+
+    @Test
+    func wireGuardReservedAcceptsCommaSeparatedInts() throws {
+        let config = TunnelConfiguration(
+            servers: [
+                TunnelServer(name: "WG", host: "198.51.100.13", port: 51820,
+                             transport: "wireguard",
+                             wgPrivateKey: "priv", wgPeerPublicKey: "peer",
+                             wgAddresses: "10.0.0.2/32", wgReserved: "7, 8, 9"),
+            ],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let wg = (json["outbounds"] as! [[String: Any]]).first { $0["type"] as? String == "wireguard" }!
+        #expect(wg["reserved"] as? [Int] == [7, 8, 9])
+    }
+
+    @Test
+    func wireGuardWithoutOptionalFieldsOmitsTheirKeys() throws {
+        let config = TunnelConfiguration(
+            servers: [
+                TunnelServer(name: "WG", host: "198.51.100.14", port: 51820,
+                             transport: "wireguard",
+                             wgPrivateKey: "priv", wgPeerPublicKey: "peer",
+                             wgAddresses: "10.0.0.2/32"),
+            ],
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        )
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let wg = (json["outbounds"] as! [[String: Any]]).first { $0["type"] as? String == "wireguard" }!
+        #expect(wg["pre_shared_key"] == nil)
+        #expect(wg["reserved"] == nil)
+    }
 }

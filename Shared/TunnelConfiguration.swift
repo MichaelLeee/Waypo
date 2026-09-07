@@ -41,6 +41,18 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     var congestionControl: String?
     /// Legacy VMess alteration count; modern servers use 0.
     var alterId: Int?
+    // WireGuard keys and settings (transport == "wireguard").
+    var wgPrivateKey: String?
+    var wgPeerPublicKey: String?
+    var wgPresharedKey: String?
+    /// Comma-separated interface CIDR addresses, e.g. "10.0.0.2/32, fd00::2/128".
+    var wgAddresses: String?
+    /// Comma-separated 3-byte header values, or the base64 form.
+    var wgReserved: String?
+    // Shadow-TLS outer layer (transport == "shadowtls"). The inner
+    // Shadowsocks password stays in `credentials` and its cipher in `cipher`.
+    var shadowTLSPassword: String?
+    var shadowTLSVersion: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, transport, credentials, cipher, useTLS, serverName
@@ -48,6 +60,8 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         case obfs, obfsPassword, allowInsecure
         case uuid, alpn, congestionControl
         case alterId
+        case wgPrivateKey, wgPeerPublicKey, wgPresharedKey, wgAddresses, wgReserved
+        case shadowTLSPassword, shadowTLSVersion
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
@@ -58,7 +72,10 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
          realityPublicKey: String? = nil, realityShortID: String? = nil,
          obfs: String? = nil, obfsPassword: String? = nil, allowInsecure: Bool = false,
          uuid: String? = nil, alpn: String? = nil, congestionControl: String? = nil,
-         alterId: Int? = nil) {
+         alterId: Int? = nil,
+         wgPrivateKey: String? = nil, wgPeerPublicKey: String? = nil, wgPresharedKey: String? = nil,
+         wgAddresses: String? = nil, wgReserved: String? = nil,
+         shadowTLSPassword: String? = nil, shadowTLSVersion: Int? = nil) {
         self.id = id
         self.name = name
         self.host = host
@@ -82,6 +99,13 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         self.alpn = alpn
         self.congestionControl = congestionControl
         self.alterId = alterId
+        self.wgPrivateKey = wgPrivateKey
+        self.wgPeerPublicKey = wgPeerPublicKey
+        self.wgPresharedKey = wgPresharedKey
+        self.wgAddresses = wgAddresses
+        self.wgReserved = wgReserved
+        self.shadowTLSPassword = shadowTLSPassword
+        self.shadowTLSVersion = shadowTLSVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -109,6 +133,13 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         alpn = try container.decodeIfPresent(String.self, forKey: .alpn)
         congestionControl = try container.decodeIfPresent(String.self, forKey: .congestionControl)
         alterId = try container.decodeIfPresent(Int.self, forKey: .alterId)
+        wgPrivateKey = try container.decodeIfPresent(String.self, forKey: .wgPrivateKey)
+        wgPeerPublicKey = try container.decodeIfPresent(String.self, forKey: .wgPeerPublicKey)
+        wgPresharedKey = try container.decodeIfPresent(String.self, forKey: .wgPresharedKey)
+        wgAddresses = try container.decodeIfPresent(String.self, forKey: .wgAddresses)
+        wgReserved = try container.decodeIfPresent(String.self, forKey: .wgReserved)
+        shadowTLSPassword = try container.decodeIfPresent(String.self, forKey: .shadowTLSPassword)
+        shadowTLSVersion = try container.decodeIfPresent(Int.self, forKey: .shadowTLSVersion)
     }
 }
 

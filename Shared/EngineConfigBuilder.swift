@@ -56,6 +56,10 @@ enum EngineConfigBuilder {
             outbounds = [["type": "direct", "tag": "out"]]
         } else {
             var serverOutbounds: [[String: Any]] = []
+            // The tag the top-level selector and groups reference. Most
+            // transports are the server's own tag; a Shadow-TLS server emits
+            // a second, chained outbound and members point at that one.
+            var memberTags: [String] = []
             for server in remoteOutbounds {
                 var outbound: [String: Any] = [
                     "type": server.transport,
@@ -92,12 +96,53 @@ enum EngineConfigBuilder {
                     if let congestion = server.congestionControl, !congestion.isEmpty {
                         outbound["congestion_control"] = congestion
                     }
+                case "anytls":
+                    outbound["password"] = server.credentials ?? ""
+                case "wireguard":
+                    outbound["local_address"] = (server.wgAddresses ?? "")
+                        .split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    outbound["private_key"] = server.wgPrivateKey ?? ""
+                    outbound["peer_public_key"] = server.wgPeerPublicKey ?? ""
+                    if let key = server.wgPresharedKey, !key.isEmpty {
+                        outbound["pre_shared_key"] = key
+                    }
+                    if let reserved = Self.reservedValues(server.wgReserved) {
+                        outbound["reserved"] = reserved
+                    }
                 default:
                     break
                 }
+                if server.transport == "shadowtls" {
+                    // Shadow-TLS wraps an inner Shadowsocks server: the outer
+                    // outbound terminates the Shadow-TLS handshake, and the
+                    // inner one carries the traffic through it via detour.
+                    var tls: [String: Any] = [
+                        "enabled": true,
+                        "server_name": server.serverName ?? server.host,
+                    ]
+                    tls["utls"] = ["enabled": true, "fingerprint": "chrome"]
+                    outbound["version"] = server.shadowTLSVersion ?? 3
+                    outbound["password"] = server.shadowTLSPassword ?? ""
+                    outbound["tls"] = tls
+                    serverOutbounds.append(outbound)
+                    serverOutbounds.append([
+                        "type": "shadowsocks",
+                        "tag": server.id.uuidString + "-inner",
+                        "server": server.host,
+                        "server_port": server.port,
+                        "method": server.cipher ?? "aes-128-gcm",
+                        "password": server.credentials ?? "",
+                        "detour": server.id.uuidString,
+                    ])
+                    memberTags.append(server.id.uuidString + "-inner")
+                    continue
+                }
                 // These transports ride on TLS by definition; nothing else
                 // about the outbound is negotiable without it.
-                if server.useTLS || server.transport == "hysteria2" || server.transport == "tuic" {
+                if server.useTLS || server.transport == "hysteria2" || server.transport == "tuic"
+                    || server.transport == "anytls" {
                     var tls: [String: Any] = ["enabled": true, "server_name": server.serverName ?? server.host]
                     if server.allowInsecure {
                         tls["insecure"] = true
@@ -136,20 +181,22 @@ enum EngineConfigBuilder {
                     break
                 }
                 serverOutbounds.append(outbound)
+                memberTags.append(server.id.uuidString)
             }
+            let tagByMemberID = Dictionary(
+                uniqueKeysWithValues: zip(remoteOutbounds.map(\.id), memberTags)
+            )
             // Groups sit between the leaf server outbounds and "out": each
             // is a selector or url-test over its member servers, and "out"
             // can route to any group as a whole.
             var groupOutbounds: [[String: Any]] = []
             for group in configuration.groups {
-                let memberTags = group.memberIDs.compactMap { memberID in
-                    remoteOutbounds.first { $0.id == memberID }?.id.uuidString
-                }
-                guard !memberTags.isEmpty else { continue }
+                let groupMemberTags = group.memberIDs.compactMap { tagByMemberID[$0] }
+                guard !groupMemberTags.isEmpty else { continue }
                 var outbound: [String: Any] = [
                     "type": group.kind == .urlTest ? "urltest" : "selector",
                     "tag": group.id.uuidString,
-                    "outbounds": memberTags,
+                    "outbounds": groupMemberTags,
                 ]
                 switch group.kind {
                 case .select:
@@ -174,9 +221,8 @@ enum EngineConfigBuilder {
             let selector: [String: Any] = [
                 "type": "selector",
                 "tag": "out",
-                "outbounds": groupOutbounds.map { $0["tag"] as? String ?? "" }
-                    + serverOutbounds.map { $0["tag"] as? String ?? "" },
-                "default": serverOutbounds.first?["tag"] ?? "",
+                "outbounds": groupOutbounds.map { $0["tag"] as? String ?? "" } + memberTags,
+                "default": memberTags.first ?? "",
                 "interrupt_exist_connections": true,
             ]
             outbounds = [selector] + groupOutbounds + serverOutbounds + [["type": "direct", "tag": "direct-out"]]
@@ -243,5 +289,22 @@ enum EngineConfigBuilder {
 
         let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The engine wants the three-byte header as a JSON int array; sources
+    /// give it either as comma-separated numbers or as base64 of the bytes.
+    private static func reservedValues(_ text: String?) -> [Int]? {
+        guard let text, !text.isEmpty else { return nil }
+        if text.contains(",") {
+            let values = text.split(separator: ",").compactMap {
+                Int($0.trimmingCharacters(in: .whitespaces))
+            }
+            return values.count == 3 ? values : nil
+        }
+        var padded = text.replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        padded += String(repeating: "=", count: (4 - padded.count % 4) % 4)
+        guard let data = Data(base64Encoded: padded), data.count == 3 else { return nil }
+        return data.map(Int.init)
     }
 }

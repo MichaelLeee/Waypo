@@ -2,9 +2,13 @@ import Foundation
 
 /// Parses share-link entries into configuration values.
 /// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings),
-/// hysteria2 (and its hy2 alias), tuic, vmess (base64-JSON body).
+/// hysteria2 (and its hy2 alias), tuic, vmess (base64-JSON body), wireguard,
+/// anytls — plus wg-quick configuration text and the community YAML format.
 enum ServerImport {
     static func parse(_ text: String) -> [TunnelServer] {
+        if text.contains("[Interface]"), let conf = parseWireGuardConf(text) {
+            return [conf]
+        }
         if looksLikeYAML(text) {
             let parsed = parseYAML(text)
             if !parsed.isEmpty { return parsed }
@@ -43,6 +47,8 @@ enum ServerImport {
         case "ss": return parseShadowsocks(url, rawLine: line)
         case "hysteria2", "hy2": return parseHysteria2(url)
         case "tuic": return parseTUIC(url)
+        case "wireguard": return parseWireGuard(url)
+        case "anytls": return parseAnyTLS(url)
         default: return nil
         }
     }
@@ -257,6 +263,93 @@ enum ServerImport {
         )
     }
 
+    /// WireGuard links: wireguard://<base64 private key>@host:port/?publickey=...&address=10.0.0.2/32,fd00::2/128&presharedkey=...&reserved=...#name
+    private static func parseWireGuard(_ url: URL) -> TunnelServer? {
+        guard let host = url.host, !host.isEmpty else { return nil }
+        return TunnelServer(
+            name: displayName(url, fallback: host),
+            host: host,
+            port: url.port ?? 51820,
+            transport: "wireguard",
+            wgPrivateKey: decodedUser(url),
+            wgPeerPublicKey: queryValue("publickey", in: url) ?? queryValue("peer", in: url),
+            wgPresharedKey: queryValue("presharedkey", in: url),
+            wgAddresses: queryValue("address", in: url)?.replacingOccurrences(of: ",", with: ", "),
+            wgReserved: queryValue("reserved", in: url)
+        )
+    }
+
+    /// AnyTLS links: anytls://password@host:port/?sni=...&insecure=1&alpn=...#name
+    private static func parseAnyTLS(_ url: URL) -> TunnelServer? {
+        guard let host = url.host, !host.isEmpty else { return nil }
+        let insecure = ["1", "true"].contains(queryValue("insecure", in: url)?.lowercased())
+        return TunnelServer(
+            name: displayName(url, fallback: host),
+            host: host,
+            port: url.port ?? 443,
+            transport: "anytls",
+            credentials: decodedPassword(url) ?? decodedUser(url),
+            useTLS: true,
+            serverName: queryValue("sni", in: url),
+            allowInsecure: insecure,
+            alpn: queryValue("alpn", in: url)
+        )
+    }
+
+    /// wg-quick configuration text with [Interface] and [Peer] sections.
+    private static func parseWireGuardConf(_ text: String) -> TunnelServer? {
+        var privateKey: String?
+        var addresses: [String] = []
+        var peerKey: String?
+        var presharedKey: String?
+        var endpoint: String?
+        var section = ""
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                section = line.lowercased()
+                continue
+            }
+            guard let equals = line.firstIndex(of: "=") else { continue }
+            let key = line[..<equals].trimmingCharacters(in: .whitespaces).lowercased()
+            let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            switch (section, key) {
+            case ("[interface]", "privatekey"): privateKey = value
+            case ("[interface]", "address"): addresses.append(value)
+            case ("[peer]", "publickey"): peerKey = value
+            case ("[peer]", "presharedkey"): presharedKey = value
+            case ("[peer]", "endpoint"): endpoint = value
+            default: break
+            }
+        }
+        guard let privateKey, !privateKey.isEmpty,
+              let endpoint, !endpoint.isEmpty
+        else { return nil }
+
+        // The endpoint may be host:port or [v6-host]:port.
+        var host: String
+        var port = 51820
+        if let open = endpoint.firstIndex(of: "["), let close = endpoint.firstIndex(of: "]") {
+            host = String(endpoint[endpoint.index(after: open)..<close])
+            port = Int(String(endpoint[endpoint.index(after: close)...].dropFirst())) ?? 51820
+        } else if let colon = endpoint.lastIndex(of: ":") {
+            host = String(endpoint[..<colon])
+            port = Int(String(endpoint[endpoint.index(after: colon)...])) ?? 51820
+        } else {
+            host = endpoint
+        }
+        return TunnelServer(
+            name: "WireGuard \(host)",
+            host: host,
+            port: port,
+            transport: "wireguard",
+            wgPrivateKey: privateKey,
+            wgPeerPublicKey: peerKey,
+            wgPresharedKey: presharedKey,
+            wgAddresses: addresses.isEmpty ? nil : addresses.joined(separator: ", ")
+        )
+    }
+
     // MARK: - Community YAML configuration
 
     private static func looksLikeYAML(_ text: String) -> Bool {
@@ -277,11 +370,11 @@ enum ServerImport {
               let rawType = stringField(proxy, "type")?.lowercased()
         else { return nil }
 
-        let transport: String
+        var transport: String
         switch rawType {
         case "ss", "shadowsocks": transport = "shadowsocks"
         case "hysteria2", "hy2": transport = "hysteria2"
-        case "trojan", "vless", "vmess", "tuic": transport = rawType
+        case "trojan", "vless", "vmess", "tuic", "anytls", "wireguard": transport = rawType
         default: return nil
         }
 
@@ -313,6 +406,7 @@ enum ServerImport {
         let reality = proxy["reality-opts"] as? [String: Any]
         let useTLS = boolField(proxy, "tls") || reality != nil
             || transport == "trojan" || transport == "hysteria2" || transport == "tuic"
+            || transport == "anytls"
 
         var obfs = stringField(proxy, "obfs")
         var obfsPassword = stringField(proxy, "obfs-password")
@@ -322,9 +416,43 @@ enum ServerImport {
             obfsPassword = stringField(options, "password")
         }
 
+        // An ss entry with the shadowtls plugin is a Shadow-TLS endpoint:
+        // the plugin password/version describe the outer layer, and the
+        // plugin host (when present) is the real endpoint.
+        var shadowTLSPassword: String?
+        var shadowTLSVersion: Int?
+        var resolvedHost = host
+        if transport == "shadowsocks", stringField(proxy, "plugin")?.lowercased() == "shadowtls",
+           let options = proxy["plugin-opts"] as? [String: Any] {
+            transport = "shadowtls"
+            shadowTLSPassword = stringField(options, "password")
+            shadowTLSVersion = intField(options, "version") ?? 3
+            if let pluginHost = stringField(options, "host"), !pluginHost.isEmpty {
+                resolvedHost = pluginHost
+            }
+        }
+
+        var wgPrivateKey: String?
+        var wgPeerPublicKey: String?
+        var wgPresharedKey: String?
+        var wgAddresses: String?
+        var wgReserved: String?
+        if transport == "wireguard" {
+            wgPrivateKey = stringField(proxy, "private-key")
+            wgPeerPublicKey = stringField(proxy, "public-key")
+            wgPresharedKey = stringField(proxy, "pre-shared-key")
+            let interfaceAddresses = [stringField(proxy, "ip"), stringField(proxy, "ipv6")]
+                .compactMap { $0 }
+            wgAddresses = interfaceAddresses.isEmpty ? nil : interfaceAddresses.joined(separator: ", ")
+            if let values = proxy["reserved"] as? [Any] {
+                let ints = values.compactMap { ($0 as? NSNumber)?.intValue }
+                wgReserved = ints.count == 3 ? ints.map(String.init).joined(separator: ",") : nil
+            }
+        }
+
         return TunnelServer(
             name: stringField(proxy, "name") ?? host,
-            host: host,
+            host: resolvedHost,
             port: port,
             transport: transport,
             credentials: stringField(proxy, "password") ?? stringField(proxy, "uuid"),
@@ -345,7 +473,14 @@ enum ServerImport {
             uuid: stringField(proxy, "uuid"),
             alpn: alpn,
             congestionControl: stringField(proxy, "congestion-controller"),
-            alterId: intField(proxy, "alterId")
+            alterId: intField(proxy, "alterId"),
+            wgPrivateKey: wgPrivateKey,
+            wgPeerPublicKey: wgPeerPublicKey,
+            wgPresharedKey: wgPresharedKey,
+            wgAddresses: wgAddresses,
+            wgReserved: wgReserved,
+            shadowTLSPassword: shadowTLSPassword,
+            shadowTLSVersion: shadowTLSVersion
         )
     }
 

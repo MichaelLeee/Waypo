@@ -177,6 +177,27 @@ struct TunnelConfigurationTests {
     }
 
     @Test
+    func newTransportFieldsRoundTrip() throws {
+        let server = TunnelServer(
+            name: "New",
+            host: "198.51.100.9",
+            port: 51820,
+            transport: "wireguard",
+            credentials: "unused",
+            wgPrivateKey: "priv",
+            wgPeerPublicKey: "peer",
+            wgPresharedKey: "psk",
+            wgAddresses: "10.0.0.2/32, fd00::2/128",
+            wgReserved: "1,2,3",
+            shadowTLSPassword: "st-pass",
+            shadowTLSVersion: 2
+        )
+        let data = try JSONEncoder().encode(server)
+        let decoded = try JSONDecoder().decode(TunnelServer.self, from: data)
+        #expect(decoded == server)
+    }
+
+    @Test
     func decodeWithoutGroupsKeepsEmptyList() throws {
         // Configurations persisted before groups existed must still load.
         let json = #"{"servers":[],"mtu":1500,"dnsAddresses":["1.1.1.1"]}"#
