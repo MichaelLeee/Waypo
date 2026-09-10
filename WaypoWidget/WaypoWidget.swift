@@ -1,3 +1,4 @@
+import AppIntents
 import NetworkExtension
 import SwiftUI
 import WidgetKit
