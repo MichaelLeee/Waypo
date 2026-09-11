@@ -139,6 +139,96 @@ struct ScriptRunRecord: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// A network request a script asked for. The scheme is validated before
+/// anything is sent; only `http` and `https` are allowed through.
+struct ScriptHTTPRequest: Sendable {
+    enum Method: String, Sendable, CaseIterable {
+        case get = "GET"
+        case post = "POST"
+        case put = "PUT"
+        case delete = "DELETE"
+    }
+
+    var method: Method
+    var url: String
+    var headers: [String: String]
+    var body: String?
+}
+
+/// What came back. A non-2xx status is still a response, not an error, so the
+/// script can decide what to do with it.
+struct ScriptHTTPResponse: Sendable {
+    var status: Int
+    var headers: [String: String]
+    var body: String
+}
+
+/// Why a request produced no response at all. `message` is what the script
+/// receives as its callback's error argument.
+struct ScriptHTTPError: Error, Sendable {
+    var message: String
+}
+
+/// The console channel a captured line came from.
+enum ScriptLogLevel: String, Sendable, CaseIterable {
+    case log
+    case warn
+    case error
+
+    var prefix: String {
+        switch self {
+        case .log: ""
+        case .warn: "[warn] "
+        case .error: "[error] "
+        }
+    }
+}
+
+/// A read-only snapshot of the app handed to a run as `$waypo`. Built on the
+/// main actor before the run starts, so a running script never reaches back
+/// into the controller.
+struct ScriptEnvironment: Codable, Sendable {
+    struct Server: Codable, Sendable {
+        var id: UUID
+        var name: String
+        var transport: String
+    }
+
+    var profile: String
+    /// One of `connected`, `connecting`, `disconnecting`, `disconnected`,
+    /// `reasserting`, `invalid`. A plain string so a script can compare it
+    /// without knowing the platform type behind it.
+    var status: String
+    var isActive: Bool
+    var activeServerID: UUID?
+    var version: String
+    var servers: [Server]
+
+    static let empty = ScriptEnvironment(profile: "", status: "invalid",
+                                         isActive: false, activeServerID: nil,
+                                         version: "", servers: [])
+}
+
+/// What one run produced. The caps are applied here so nothing downstream has
+/// to remember them.
+struct ScriptResult: Sendable {
+    var outcome: ScriptOutcome
+    var output: String?
+    /// Captured console lines, oldest first.
+    var log: [String]
+    var duration: TimeInterval
+
+    init(outcome: ScriptOutcome, output: String? = nil, log: [String] = [],
+         duration: TimeInterval) {
+        self.outcome = outcome
+        self.output = output.map {
+            ScriptLimits.truncate($0, toUTF8Bytes: ScriptLimits.outputBytes)
+        }
+        self.log = ScriptLimits.truncateLog(log)
+        self.duration = duration
+    }
+}
+
 extension KeyedDecodingContainer {
     /// Decodes a string-backed enum, returning nil when the key is absent,
     /// the value is the wrong shape, or the case no longer exists. Keeps a
