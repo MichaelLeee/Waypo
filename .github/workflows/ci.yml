@@ -19,16 +19,47 @@ jobs:
 
       - name: Build macOS targets
         run: |
-          set -e
+          set -eo pipefail
           for target in WaypoMac WaypoHarness WaypoTunnelMac; do
-            xcodebuild -project Waypo.xcodeproj -target "$target" -configuration Debug build CODE_SIGNING_ALLOWED=NO
+            xcodebuild -project Waypo.xcodeproj -target "$target" -configuration Debug build CODE_SIGNING_ALLOWED=NO 2>&1 \
+              | tee "build-$target.log"
           done
 
       - name: Build iOS target
-        run: xcodebuild -project Waypo.xcodeproj -target Waypo -configuration Debug -sdk iphonesimulator build CODE_SIGNING_ALLOWED=NO
+        run: |
+          set -eo pipefail
+          xcodebuild -project Waypo.xcodeproj -target Waypo -configuration Debug -sdk iphonesimulator build CODE_SIGNING_ALLOWED=NO 2>&1 \
+            | tee build-Waypo-ios.log
 
       - name: Run tests
-        run: xcodebuild -project Waypo.xcodeproj -scheme WaypoTests -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
+        run: |
+          set -eo pipefail
+          xcodebuild -project Waypo.xcodeproj -scheme WaypoTests -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO 2>&1 \
+            | tee test.log
+
+      # Compiler output is otherwise buried in the step log, which needs an
+      # authenticated session to read. Annotations are visible on the run page.
+      - name: Report diagnostics
+        if: failure()
+        run: |
+          {
+            grep -hE '(error|warning): ' build-*.log test.log 2>/dev/null | sort -u | head -30
+            grep -hA4 'The following build commands failed' build-*.log test.log 2>/dev/null | head -20
+          } > summary.txt || true
+          # Nothing matched the usual shapes, so fall back to the tail of the
+          # most recently written log rather than reporting silence.
+          if [ ! -s summary.txt ]; then
+            tail -30 "$(ls -t build-*.log test.log 2>/dev/null | head -1)" > summary.txt || true
+          fi
+          {
+            echo '### Diagnostics'
+            echo '```'
+            cat summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do
+            echo "::error::$line"
+          done < summary.txt
 
   engine:
     runs-on: macos-26
