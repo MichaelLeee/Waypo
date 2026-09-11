@@ -210,7 +210,10 @@ struct CronExpression: Hashable, Sendable {
                                    normalizeSunday: Bool = false) throws -> CronField {
         guard !raw.isEmpty else { throw ScriptScheduleError.invalidValue(name, raw) }
         guard raw != "*" else {
-            return CronField(values: Array(bounds), isWildcard: true)
+            // A wildcard admits every value, but day of week has two
+            // spellings of Sunday, so keep only the canonical one.
+            let values = normalizeSunday ? Array(bounds.dropLast()) : Array(bounds)
+            return CronField(values: values, isWildcard: true)
         }
 
         var collected: Set<Int> = []
@@ -272,6 +275,24 @@ struct CronExpression: Hashable, Sendable {
             collected.insert(value)
             value += step
         }
+    }
+}
+
+extension CronExpression: Codable {
+    /// Stored as the expression text alone. Every other field is derived from
+    /// it, so keeping the text as the single source of truth avoids storing
+    /// the same expression twice and leaves something a human can read when
+    /// inspecting the App Group. A stored text that no longer parses throws,
+    /// which `Script` already treats as "no schedule" rather than as a
+    /// failure to decode the script around it.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = try CronExpression.parse(try container.decode(String.self))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(text)
     }
 }
 

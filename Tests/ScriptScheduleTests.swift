@@ -46,12 +46,17 @@ private enum UTC {
 struct ScriptScheduleParsingTests {
     @Test
     func intervalFormsParse() throws {
-        #expect(try ScriptSchedule.parse("every 30s") == .interval(seconds: 30))
-        #expect(try ScriptSchedule.parse("every 5m") == .interval(seconds: 300))
-        #expect(try ScriptSchedule.parse("every 1h") == .interval(seconds: 3600))
-        #expect(try ScriptSchedule.parse("EVERY 10M") == .interval(seconds: 600))
-        #expect(try ScriptSchedule.parse("  every 2 h  ") == .interval(seconds: 7200))
-        #expect(try ScriptSchedule.parse("every 30d") == .interval(seconds: 2592000))
+        let cases: [(String, ScriptSchedule)] = [
+            ("every 30s", .interval(seconds: 30)),
+            ("every 5m", .interval(seconds: 300)),
+            ("every 1h", .interval(seconds: 3600)),
+            ("EVERY 10M", .interval(seconds: 600)),
+            ("  every 2 h  ", .interval(seconds: 7200)),
+            ("every 30d", .interval(seconds: 2592000)),
+        ]
+        for (text, expected) in cases {
+            #expect(try ScriptSchedule.parse(text) == expected)
+        }
     }
 
     @Test
