@@ -61,44 +61,50 @@ struct ServerListView: View {
         } message: {
             Text("Each profile has its own server list.")
         }
-        .overlay {
-            if controller.configuration.servers.isEmpty {
-                ContentUnavailableView(
-                    "No Servers",
-                    systemImage: "server.rack",
-                    description: Text("Add a server to get started.")
-                )
-            }
-        }
     }
 
     private var list: some View {
+        content
 #if os(macOS)
-        List(selection: $selection) {
-            rows
-        }
-        .toolbar { profileToolbar; systemModeToolbar; toolbarContent }
-        .safeAreaInset(edge: .bottom) {
-            systemModeFooter
-        }
+            .toolbar { profileToolbar; systemModeToolbar; toolbarContent }
 #else
-        List {
-            if showsConnectionRow {
-                Section("Tunnel") {
-                    ConnectionStatusRow(controller: controller)
-                    if let error = controller.lastError {
-                        Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            Section("Servers") {
+            .navigationTitle("Servers")
+            .toolbar { profileToolbar; toolbarContent }
+#endif
+            .inlineTitleOnIOS()
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if controller.configuration.servers.isEmpty {
+            WaypoEmptyState("No Servers",
+                            systemImage: "server.rack",
+                            message: "Add a server to get started.")
+        } else {
+#if os(macOS)
+            List(selection: $selection) {
                 rows
             }
-        }
-        .toolbar { profileToolbar; toolbarContent }
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom) {
+                systemModeFooter
+            }
+#else
+            List {
+                if showsConnectionRow {
+                    Section("Tunnel") {
+                        ConnectionStatusRow(controller: controller)
+                        if let error = controller.lastError {
+                            ErrorText(error, alignment: .leading)
+                        }
+                    }
+                }
+                Section("Servers") {
+                    rows
+                }
+            }
 #endif
+        }
     }
 
     @ViewBuilder
@@ -206,9 +212,7 @@ struct ServerListView: View {
     @ViewBuilder
     private var systemModeFooter: some View {
         if let error = systemMode.lastError {
-            Text(error)
-                .font(.footnote)
-                .foregroundStyle(.red)
+            ErrorText(error, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
                 .padding(.vertical, 6)
@@ -216,17 +220,18 @@ struct ServerListView: View {
         } else if systemMode.isRunning {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(.green)
+                    .fill(Palette.positive)
                     .frame(width: 7, height: 7)
                 Text("System Mode active · port \(SystemModeController.listenerPort)")
                 Spacer()
                 if let traffic = systemMode.traffic {
                     Text("\(byteCount(traffic.bytesIn)) in · \(byteCount(traffic.bytesOut)) out · \(traffic.activeConnections) connections")
                         .monospacedDigit()
+                        .contentTransition(.numericText())
                 }
             }
             .font(.footnote)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.neutral)
             .padding(.horizontal)
             .padding(.vertical, 6)
             .background(.bar)
@@ -250,6 +255,15 @@ struct ServerListView: View {
             } label: {
                 Label("Import", systemImage: "square.and.arrow.down")
             }
+#if os(macOS)
+            // Nine buttons do not fit a window toolbar, so the panel screens
+            // live behind one menu.
+            Menu {
+                panelsMenuItems
+            } label: {
+                Label("Panels", systemImage: "ellipsis.circle")
+            }
+#else
             Button {
                 showingGroups = true
             } label: {
@@ -275,6 +289,7 @@ struct ServerListView: View {
             } label: {
                 Label("Engine Logs", systemImage: "doc.text")
             }
+#endif
             Button {
                 Task { await controller.checkAllLatencies() }
             } label: {
@@ -292,6 +307,35 @@ struct ServerListView: View {
             .disabled(selection == nil)
         }
     }
+
+    @ViewBuilder
+    private var panelsMenuItems: some View {
+        Button {
+            showingGroups = true
+        } label: {
+            Label("Groups", systemImage: "rectangle.stack")
+        }
+        Button {
+            showingConnections = true
+        } label: {
+            Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
+        }
+        Button {
+            showingDNS = true
+        } label: {
+            Label("DNS", systemImage: "arrow.triangle.branch")
+        }
+        Button {
+            showingRules = true
+        } label: {
+            Label("Rules", systemImage: "arrow.3.trianglepath")
+        }
+        Button {
+            showingLogs = true
+        } label: {
+            Label("Engine Logs", systemImage: "doc.text")
+        }
+    }
 }
 
 struct ServerRow: View {
@@ -299,31 +343,41 @@ struct ServerRow: View {
     var isActive: Bool
     var latency: Double?
 
+    @ScaledMetric(relativeTo: .body) private var iconSize = Metrics.rowIconSize
+
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
+            glyph
             VStack(alignment: .leading, spacing: 2) {
                 Text(server.name)
                 Text("\(server.host):\(server.port)")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
             }
             Spacer()
             if let latency {
-                Text(String(format: "%.0f ms", latency))
+                Text(LatencyLevel.label(milliseconds: latency))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(latencyColor(latency))
+                    .foregroundStyle(LatencyLevel(milliseconds: latency).color)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: latency)
             }
             if isActive {
-                Text("In Use")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                StatusPill("In Use", tone: .positive)
             }
         }
     }
 
-    private func latencyColor(_ latency: Double) -> Color {
-        if latency < 150 { return .green }
-        if latency < 400 { return .orange }
-        return .red
+    @ViewBuilder
+    private var glyph: some View {
+        if let custom = server.icon?.trimmingCharacters(in: .whitespaces), !custom.isEmpty {
+            Text(custom)
+                .font(.title3)
+                .frame(width: iconSize)
+        } else {
+            Image(systemName: TransportStyle.symbol(for: server.transport))
+                .foregroundStyle(Palette.accent)
+                .frame(width: iconSize)
+        }
     }
 }

@@ -11,21 +11,19 @@ struct ConnectionsView: View {
         NavigationStack {
             Group {
                 if controller.connections.isEmpty {
-                    ContentUnavailableView(
+                    WaypoEmptyState(
                         "No Connections",
                         systemImage: "point.3.connected.trianglepath.dotted",
-                        description: Text(controller.isActive
-                                          ? "Connections made through the tunnel appear here."
-                                          : "Connect the tunnel to see live connections.")
+                        message: controller.isActive
+                            ? "Connections made through the tunnel appear here."
+                            : "Connect the tunnel to see live connections."
                     )
                 } else {
                     connectionsList
                 }
             }
             .navigationTitle("Connections")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
+            .inlineTitleOnIOS()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -64,7 +62,7 @@ private struct ConnectionRow: View {
     var body: some View {
         HStack {
             Image(systemName: networkIcon)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.neutral)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(connection.domain ?? connection.destination)
@@ -77,7 +75,7 @@ private struct ConnectionRow: View {
                     Text(connection.outbound)
                 }
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.neutral)
                 .lineLimit(1)
             }
             Spacer()
@@ -86,7 +84,9 @@ private struct ConnectionRow: View {
                 Text("↓ \(byteCount(connection.download))")
             }
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.neutral)
+            .contentTransition(.numericText())
+            .animation(.default, value: connection.upload)
         }
     }
 

@@ -25,21 +25,16 @@ struct ServerEditorView: View {
             Form {
                 Section("General") {
                     TextField("Name", text: $draft.name)
+                    TextField("Icon", text: optionalString($draft.icon))
+                        .autocorrectionDisabled()
                     TextField("Host", text: $draft.host)
 
                         .autocorrectionDisabled()
                     TextField("Port", value: $draft.port, format: .number.grouping(.never))
                     Picker("Transport", selection: $draft.transport) {
-                        Text("Direct").tag("direct")
-                        Text("Trojan").tag("trojan")
-                        Text("VLESS").tag("vless")
-                        Text("Shadowsocks").tag("shadowsocks")
-                        Text("Hysteria2").tag("hysteria2")
-                        Text("TUIC").tag("tuic")
-                        Text("VMess").tag("vmess")
-                        Text("WireGuard").tag("wireguard")
-                        Text("AnyTLS").tag("anytls")
-                        Text("Shadow-TLS").tag("shadowtls")
+                        ForEach(TransportStyle.all, id: \.self) { transport in
+                            Text(TransportStyle.displayName(for: transport)).tag(transport)
+                        }
                     }
                     if draft.transport == "shadowsocks" || draft.transport == "shadowtls" {
                         TextField("Cipher", text: optionalString($draft.cipher))
@@ -150,15 +145,8 @@ struct ServerEditorView: View {
                 }
             }
             .navigationTitle(mode.title)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(!isValid)
-                }
-            }
+            .inlineTitleOnIOS()
+            .editorToolbar(isSaveDisabled: !isValid) { save() }
         }
         .onAppear {
             if case let .edit(server) = mode {

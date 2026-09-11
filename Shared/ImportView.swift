@@ -49,13 +49,12 @@ struct ImportView: View {
 
                 if let importError {
                     Section {
-                        Text(importError)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
+                        ErrorText(importError, alignment: .leading)
                     }
                 }
             }
             .navigationTitle("Import")
+            .inlineTitleOnIOS()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

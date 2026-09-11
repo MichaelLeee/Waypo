@@ -23,17 +23,14 @@ struct DNSSettingsView: View {
                             editingResolver = resolver
                         } label: {
                             HStack {
-                                Text(kindLabel(resolver.kind))
-                                    .font(.caption.weight(.semibold))
-                                    .frame(width: 44, alignment: .leading)
-                                    .foregroundStyle(.tint)
+                                StatusPill(kindLabel(resolver.kind), tone: .accent)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(resolver.server)
                                         .foregroundStyle(.primary)
                                     if let detail = resolverDetail(resolver) {
                                         Text(detail)
                                             .font(.caption2)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(Palette.neutral)
                                     }
                                 }
                                 Spacer()
@@ -63,7 +60,7 @@ struct DNSSettingsView: View {
                                 Spacer()
                                 Text(host.address)
                                     .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Palette.neutral)
                             }
                         }
                     }
@@ -87,9 +84,7 @@ struct DNSSettingsView: View {
                 }
             }
             .navigationTitle("DNS")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
+            .inlineTitleOnIOS()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -221,18 +216,8 @@ private struct ResolverEditorView: View {
                 }
             }
             .navigationTitle(isNew ? "New Resolver" : "Edit Resolver")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Save", action: save)
-                        .disabled(server.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
+            .inlineTitleOnIOS()
+            .editorToolbar(isSaveDisabled: server.trimmingCharacters(in: .whitespaces).isEmpty) { save() }
             .onAppear(perform: load)
         }
     }
@@ -303,19 +288,9 @@ private struct HostEditorView: View {
                 }
             }
             .navigationTitle(isNew ? "New Host" : "Edit Host")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Save", action: save)
-                        .disabled(domain.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || address.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
+            .inlineTitleOnIOS()
+            .editorToolbar(isSaveDisabled: domain.trimmingCharacters(in: .whitespaces).isEmpty
+                           || address.trimmingCharacters(in: .whitespaces).isEmpty) { save() }
             .onAppear(perform: load)
         }
     }

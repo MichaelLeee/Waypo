@@ -5,6 +5,9 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     var name: String
     var host: String
     var port: Int
+    /// Optional glyph shown ahead of the name in lists. Falls back to a symbol
+    /// derived from `transport`.
+    var icon: String?
 
     /// Transport identifier understood by the engine (for example "direct").
     var transport: String = "direct"
@@ -55,7 +58,7 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
     var shadowTLSVersion: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, host, port, transport, credentials, cipher, useTLS, serverName
+        case id, name, host, port, icon, transport, credentials, cipher, useTLS, serverName
         case network, wsPath, wsHost, serviceName, flow, realityPublicKey, realityShortID
         case obfs, obfsPassword, allowInsecure
         case uuid, alpn, congestionControl
@@ -64,7 +67,8 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         case shadowTLSPassword, shadowTLSVersion
     }
 
-    init(id: UUID = UUID(), name: String, host: String, port: Int, transport: String = "direct",
+    init(id: UUID = UUID(), name: String, host: String, port: Int, icon: String? = nil,
+         transport: String = "direct",
          credentials: String? = nil, cipher: String? = nil,
          useTLS: Bool = false, serverName: String? = nil,
          network: String? = nil, wsPath: String? = nil, wsHost: String? = nil,
@@ -80,6 +84,7 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         self.name = name
         self.host = host
         self.port = port
+        self.icon = icon
         self.transport = transport
         self.credentials = credentials
         self.cipher = cipher
@@ -114,6 +119,7 @@ struct TunnelServer: Codable, Hashable, Sendable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         host = try container.decode(String.self, forKey: .host)
         port = try container.decode(Int.self, forKey: .port)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
         transport = try container.decodeIfPresent(String.self, forKey: .transport) ?? "direct"
         credentials = try container.decodeIfPresent(String.self, forKey: .credentials)
         cipher = try container.decodeIfPresent(String.self, forKey: .cipher)

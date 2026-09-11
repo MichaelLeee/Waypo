@@ -18,19 +18,17 @@ struct RulesView: View {
         NavigationStack {
             Group {
                 if rules.isEmpty && ruleSets.isEmpty {
-                    ContentUnavailableView(
+                    WaypoEmptyState(
                         "No Rules",
                         systemImage: "arrow.triangle.branch",
-                        description: Text("Route chosen traffic to a specific server, or block it outright.")
+                        message: "Route chosen traffic to a specific server, or block it outright."
                     )
                 } else {
                     lists
                 }
             }
             .navigationTitle("Rules")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
+            .inlineTitleOnIOS()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -143,7 +141,7 @@ struct RulesView: View {
                                     .foregroundStyle(.primary)
                                 Text(set.url)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Palette.neutral)
                                     .lineLimit(1)
                             }
                         }
@@ -174,12 +172,12 @@ private struct RuleRow: View {
                     .foregroundStyle(.primary)
                 Text(actionSummary)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
             }
             Spacer()
             if rule.invert {
                 Image(systemName: "arrow.2.squarepath")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
             }
         }
     }
@@ -284,8 +282,7 @@ struct RuleEditorView: View {
                                         .foregroundStyle(.primary)
                                     Spacer()
                                     if selectedSets.contains(set.id.uuidString) {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(.tint)
+                                        StatusPill(systemImage: "checkmark", tone: .accent)
                                     }
                                 }
                             }
@@ -299,18 +296,8 @@ struct RuleEditorView: View {
                 }
             }
             .navigationTitle(isNew ? "New Rule" : "Edit Rule")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Save", action: save)
-                        .disabled(!draft.matchesSomething)
-                }
-            }
+            .inlineTitleOnIOS()
+            .editorToolbar(isSaveDisabled: !draft.matchesSomething) { save() }
         }
         .onAppear(perform: load)
     }
@@ -411,19 +398,9 @@ struct RuleSetEditorView: View {
                 }
             }
             .navigationTitle(isNew ? "New Rule Set" : "Edit Rule Set")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Save", action: save)
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || url.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
+            .inlineTitleOnIOS()
+            .editorToolbar(isSaveDisabled: name.trimmingCharacters(in: .whitespaces).isEmpty
+                           || url.trimmingCharacters(in: .whitespaces).isEmpty) { save() }
         }
         .onAppear(perform: load)
     }

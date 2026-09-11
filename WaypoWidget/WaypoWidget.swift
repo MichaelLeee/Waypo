@@ -45,27 +45,8 @@ struct TunnelStatusProvider: TimelineProvider {
 struct WaypoWidgetEntryView: View {
     var entry: TunnelEntry
 
-    private var isBusy: Bool {
-        entry.status == .connecting || entry.status == .disconnecting || entry.status == .reasserting
-    }
-
-    private var statusColor: Color {
-        switch entry.status {
-        case .connected: .green
-        case .connecting, .disconnecting, .reasserting: .orange
-        default: .secondary
-        }
-    }
-
-    private var statusText: String {
-        switch entry.status {
-        case .connected: "Connected"
-        case .connecting: "Connecting…"
-        case .disconnecting: "Disconnecting…"
-        case .reasserting: "Reasserting…"
-        case .invalid: "Not installed"
-        default: "Disconnected"
-        }
+    private var style: ConnectionStatusStyle {
+        ConnectionStatusStyle(entry.status)
     }
 
     var body: some View {
@@ -73,7 +54,7 @@ struct WaypoWidgetEntryView: View {
             HStack(spacing: 8) {
                 Image(systemName: "shield.fill")
                     .font(.title3)
-                    .foregroundStyle(statusColor)
+                    .foregroundStyle(style.color)
                 Text(entry.profileName)
                     .font(.headline)
                     .lineLimit(1)
@@ -82,18 +63,20 @@ struct WaypoWidgetEntryView: View {
                     Image(systemName: entry.status == .connected ? "stop.circle.fill" : "play.circle.fill")
                         .font(.title)
                         .symbolRenderingMode(.hierarchical)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(statusColor)
+                .foregroundStyle(style.color)
+                .accessibilityLabel(entry.status == .connected ? "Stop" : "Start")
             }
             Spacer(minLength: 0)
-            Text(statusText)
+            Text(style.label)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(statusColor)
+                .foregroundStyle(style.color)
             if let server = entry.serverName {
                 Text(server)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
                     .lineLimit(1)
             }
         }

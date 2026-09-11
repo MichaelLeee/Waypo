@@ -19,6 +19,7 @@ struct ContentView: View {
                 .navigationTitle("Waypo")
 #endif
         }
+        .tint(Palette.accent)
         .task { await controller.refresh() }
     }
 }

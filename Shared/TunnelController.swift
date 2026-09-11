@@ -44,18 +44,6 @@ final class TunnelController {
     private var observing = false
     private var statsTask: Task<Void, Never>?
 
-    var statusLabel: String {
-        switch status {
-        case .connected: "Connected"
-        case .connecting: "Connecting…"
-        case .disconnecting: "Disconnecting…"
-        case .disconnected: "Disconnected"
-        case .invalid: "Profile not installed"
-        case .reasserting: "Reasserting…"
-        @unknown default: "Unknown"
-        }
-    }
-
     var isActive: Bool { status == .connected || status == .connecting }
 
     func isActiveServer(_ id: TunnelServer.ID) -> Bool {

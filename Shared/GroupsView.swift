@@ -13,19 +13,17 @@ struct GroupsView: View {
         NavigationStack {
             Group {
                 if controller.configuration.groups.isEmpty {
-                    ContentUnavailableView(
+                    WaypoEmptyState(
                         "No Groups",
                         systemImage: "rectangle.stack",
-                        description: Text("Group servers to switch between them in one tap, or to test them automatically.")
+                        message: "Group servers to switch between them in one tap, or to test them automatically."
                     )
                 } else {
                     groupsList
                 }
             }
             .navigationTitle("Groups")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
+            .inlineTitleOnIOS()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -66,13 +64,8 @@ struct GroupsView: View {
                         }
                     }
                 } header: {
-                    HStack {
-                        Text(group.name)
-                        Spacer()
-                        Text(group.kind == .urlTest ? "URL Test" : "Select")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
+                    GroupHeaderRow(title: group.name,
+                                   detail: group.kind == .urlTest ? "URL Test" : "Select")
                 }
             }
             .onDelete { offsets in
@@ -120,25 +113,20 @@ private struct MemberRow: View {
                     .foregroundStyle(canSelect ? .primary : .secondary)
                 Text("\(server.host):\(server.port)")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
             }
             Spacer()
             if let latencyMs {
-                Text("\(latencyMs) ms")
+                Text(LatencyLevel.label(milliseconds: Double(latencyMs)))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(latencyColor(latencyMs))
+                    .foregroundStyle(LatencyLevel(milliseconds: Double(latencyMs)).color)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: latencyMs)
             }
             if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                StatusPill(systemImage: "checkmark.circle.fill", tone: .positive)
             }
         }
-    }
-
-    private func latencyColor(_ latency: Int) -> Color {
-        if latency < 150 { return .green }
-        if latency < 400 { return .orange }
-        return .red
     }
 }
 
@@ -185,7 +173,7 @@ struct GroupEditorView: View {
                 Section("Members") {
                     if controller.configuration.servers.isEmpty {
                         Text("Add servers first.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Palette.neutral)
                     } else {
                         ForEach(controller.configuration.servers) { server in
                             Button {
@@ -196,8 +184,7 @@ struct GroupEditorView: View {
                                         .foregroundStyle(.primary)
                                     Spacer()
                                     if selectedMembers.contains(server.id) {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(.tint)
+                                        StatusPill(systemImage: "checkmark", tone: .accent)
                                     }
                                 }
                             }
@@ -206,19 +193,9 @@ struct GroupEditorView: View {
                 }
             }
             .navigationTitle(isNew ? "New Group" : "Edit Group")
-#if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Save", action: save)
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || selectedMembers.isEmpty)
-                }
-            }
+            .inlineTitleOnIOS()
+            .editorToolbar(isSaveDisabled: name.trimmingCharacters(in: .whitespaces).isEmpty
+                           || selectedMembers.isEmpty) { save() }
         }
         .onAppear(perform: load)
     }

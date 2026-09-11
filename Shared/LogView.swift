@@ -14,6 +14,7 @@ struct LogView: View {
         NavigationStack {
             content
                 .navigationTitle("Engine Logs")
+                .inlineTitleOnIOS()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { dismiss() }
@@ -41,16 +42,16 @@ struct LogView: View {
         if isLoading && logs.isEmpty {
             ProgressView("Loading logs…")
         } else if fetchFailed {
-            ContentUnavailableView(
+            WaypoEmptyState(
                 "Logs Unavailable",
                 systemImage: "doc.text.magnifyingglass",
-                description: Text("The engine is not running, so there is nothing to show.")
+                message: "The engine is not running, so there is nothing to show."
             )
         } else if logs.isEmpty {
-            ContentUnavailableView(
+            WaypoEmptyState(
                 "No Logs",
                 systemImage: "doc.text",
-                description: Text("Start the tunnel to capture engine output.")
+                message: "Start the tunnel to capture engine output."
             )
         } else {
             ScrollView {

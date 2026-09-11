@@ -5,11 +5,17 @@ import SwiftUI
 struct ConnectionStatusRow: View {
     var controller: TunnelController
 
+    private var style: ConnectionStatusStyle {
+        ConnectionStatusStyle(controller.status)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(controller.statusLabel)
-                    .foregroundStyle(statusColor)
+            HStack(spacing: 6) {
+                Image(systemName: style.symbol)
+                    .foregroundStyle(style.color)
+                Text(style.label)
+                    .foregroundStyle(style.color)
                 Spacer()
                 Toggle("", isOn: Binding(
                     get: { controller.isActive },
@@ -18,11 +24,14 @@ struct ConnectionStatusRow: View {
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .disabled(controller.status == .disconnecting)
+                .accessibilityLabel(controller.isActive ? "Stop" : "Start")
             }
             if let traffic = controller.traffic {
                 Text(caption(for: traffic))
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: traffic.bytesIn)
             }
             if controller.status == .connected {
                 Toggle("Connect On Demand", isOn: Binding(
@@ -41,14 +50,6 @@ struct ConnectionStatusRow: View {
         }
         return parts.joined(separator: " · ")
     }
-
-    private var statusColor: Color {
-        switch controller.status {
-        case .connected: .green
-        case .connecting, .reasserting: .orange
-        default: .secondary
-        }
-    }
 }
 
 private func byteCount(_ value: UInt64) -> String {
@@ -59,19 +60,28 @@ private func byteCount(_ value: UInt64) -> String {
 struct ConnectionCard: View {
     var controller: TunnelController
 
+    @ScaledMetric(relativeTo: .largeTitle) private var heroSize = Metrics.heroIconSize
+    @ScaledMetric(relativeTo: .title) private var actionSize = Metrics.actionIconSize
+    @ScaledMetric(relativeTo: .title) private var buttonSize = Metrics.actionButtonSize
+
+    private var style: ConnectionStatusStyle {
+        ConnectionStatusStyle(controller.status)
+    }
+
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: controller.status == .connected ? "point.3.connected.trianglepath.dotted" : "point.topleft.down.curvedto.point.bottomright.up")
-                .font(.system(size: 40))
-                .foregroundStyle(controller.status == .connected ? Color.green : Color.secondary)
+            Image(systemName: style.symbol)
+                .font(.system(size: heroSize))
+                .foregroundStyle(style.color)
+                .contentTransition(.symbolEffect(.replace))
 
-            Text(controller.statusLabel)
+            Text(style.label)
                 .font(.title2.weight(.medium))
 
             if let server = controller.configuration.servers.first {
                 Text("\(server.name) — \(server.host):\(server.port)")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.neutral)
             }
 
             if controller.status == .connected, let traffic = controller.traffic {
@@ -84,7 +94,8 @@ struct ConnectionCard: View {
                     }
                 }
                 .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.neutral)
+                .contentTransition(.numericText())
             }
 
             Toggle("Connect On Demand", isOn: Binding(
@@ -95,21 +106,21 @@ struct ConnectionCard: View {
 
             Button(action: { Task { await controller.toggle() } }) {
                 Image(systemName: controller.isActive ? "stop.fill" : "play.fill")
-                    .font(.system(size: 28))
-                    .frame(width: 84, height: 84)
+                    .font(.system(size: actionSize))
+                    .frame(width: buttonSize, height: buttonSize)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .glassEffect(in: Circle())
             .disabled(controller.status == .disconnecting)
+            .accessibilityLabel(controller.isActive ? "Stop" : "Start")
 
             if let error = controller.lastError {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
+                ErrorText(error)
             }
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.default, value: controller.status)
     }
 }
