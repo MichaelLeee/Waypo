@@ -21,8 +21,14 @@ final class TunnelController {
             store.saveStatusMirror(status.rawValue)
             WidgetCenter.shared.reloadAllTimelines()
             updateStatsPolling()
+            onStatusTransition?(oldValue, status)
         }
     }
+
+    /// Called at the end of every status change with the status it came from
+    /// and the status it went to. Assigned by the scripting service so events
+    /// follow real transitions; anything else leaves it nil.
+    var onStatusTransition: (@MainActor (NEVPNStatus, NEVPNStatus) -> Void)?
     private(set) var connectedSince: Date?
     private(set) var isOnDemandEnabled = false
     private(set) var traffic: CoreStats?

@@ -138,6 +138,8 @@ final class FakeScriptRunner: ScriptRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [(script: Script, trigger: ScriptRunRecord.Trigger)] = []
     private var storedResult = ScriptResult(outcome: .success, duration: 0)
+    private var holding = false
+    private var parked: CheckedContinuation<Void, Never>?
 
     /// The result every run reports.
     var result: ScriptResult {
@@ -147,9 +149,37 @@ final class FakeScriptRunner: ScriptRunning, @unchecked Sendable {
 
     var runs: [(script: Script, trigger: ScriptRunRecord.Trigger)] { locked { recorded } }
 
+    /// Makes the next runs wait inside `run` until `release()`, so a test can
+    /// look at the in-flight window instead of racing it.
+    func hold() {
+        locked { holding = true }
+    }
+
+    func release() {
+        let waiting: CheckedContinuation<Void, Never>? = locked {
+            holding = false
+            let continuation = parked
+            parked = nil
+            return continuation
+        }
+        waiting?.resume()
+    }
+
     func run(_ script: Script, trigger: ScriptRunRecord.Trigger,
              environment: ScriptEnvironment) async -> ScriptResult {
         locked { recorded.append((script, trigger)) }
+        if locked({ holding }) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                // Checked again under the lock, so a release that lands between
+                // the test above and this point cannot strand the run.
+                let resumeImmediately: Bool = locked {
+                    guard holding else { return true }
+                    parked = continuation
+                    return false
+                }
+                if resumeImmediately { continuation.resume() }
+            }
+        }
         return result
     }
 
