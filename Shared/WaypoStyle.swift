@@ -92,6 +92,20 @@ struct ConnectionStatusStyle {
         }
     }
 
+    /// The stable identifier a script compares against. Matches the wording
+    /// documented on `ScriptEnvironment.status`, so the two cannot drift.
+    var identifier: String {
+        switch status {
+        case .connected: "connected"
+        case .connecting: "connecting"
+        case .disconnecting: "disconnecting"
+        case .disconnected: "disconnected"
+        case .reasserting: "reasserting"
+        case .invalid: "invalid"
+        @unknown default: "invalid"
+        }
+    }
+
     var color: Color {
         switch status {
         case .connected: Palette.positive

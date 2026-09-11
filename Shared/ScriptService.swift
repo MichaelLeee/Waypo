@@ -228,3 +228,41 @@ final class ScriptService {
         history = store.loadHistory()
     }
 }
+
+extension ScriptService {
+    /// The service the app runs: a real JavaScript runtime, and a snapshot of
+    /// the live connection read fresh at the start of each run rather than
+    /// cached, so a script always sees the state it is running against.
+    static func live(controller: TunnelController,
+                     store: ScriptStore = ScriptStore()) -> ScriptService {
+        let host = AppScriptHost(store: store,
+                                 switchServer: { controller.selectServerForScript($0) })
+        return ScriptService(store: store,
+                             runner: ScriptRuntime(host: host),
+                             environment: { controller.scriptEnvironment })
+    }
+}
+
+extension TunnelController {
+    /// A server a script asked for. False for an id the app does not know, so a
+    /// script can tell a refusal apart from a switch that happened.
+    func selectServerForScript(_ id: TunnelServer.ID) -> Bool {
+        guard configuration.servers.contains(where: { $0.id == id }) else { return false }
+        setActiveServer(id)
+        return true
+    }
+
+    /// What a script sees of the app: read-only, and taken at the moment the run
+    /// starts. Nothing here can change the configuration.
+    var scriptEnvironment: ScriptEnvironment {
+        ScriptEnvironment(
+            profile: activeProfile?.name ?? "",
+            status: ConnectionStatusStyle(status).identifier,
+            isActive: isActive,
+            activeServerID: configuration.servers.first?.id,
+            version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            servers: configuration.servers.map {
+                ScriptEnvironment.Server(id: $0.id, name: $0.name, transport: $0.transport)
+            })
+    }
+}

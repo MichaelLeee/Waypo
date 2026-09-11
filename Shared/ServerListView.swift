@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ServerListView: View {
     var controller: TunnelController
+    var service: ScriptService
     @Binding var selection: TunnelServer.ID?
     var showsConnectionRow = false
 
@@ -13,6 +14,7 @@ struct ServerListView: View {
     @State private var showingConnections = false
     @State private var showingDNS = false
     @State private var showingRules = false
+    @State private var showingScripts = false
     @State private var showingNewProfile = false
     @State private var newProfileName = ""
 #if os(macOS)
@@ -50,6 +52,9 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingRules) {
             RulesView(controller: controller)
+        }
+        .sheet(isPresented: $showingScripts) {
+            ScriptListView(service: service)
         }
         .alert("New Profile", isPresented: $showingNewProfile) {
             TextField("Name", text: $newProfileName)
@@ -289,9 +294,12 @@ struct ServerListView: View {
             } label: {
                 Label("Engine Logs", systemImage: "doc.text")
             }
-#endif
             Button {
-                Task { await controller.checkAllLatencies() }
+                showingScripts = true
+            } label: {
+                Label("Scripts", systemImage: "curlybraces")
+            }
+#endif
             } label: {
                 Label("Test Latency", systemImage: "antenna.radiowaves.left.and.right")
             }
@@ -334,6 +342,11 @@ struct ServerListView: View {
             showingLogs = true
         } label: {
             Label("Engine Logs", systemImage: "doc.text")
+        }
+        Button {
+            showingScripts = true
+        } label: {
+            Label("Scripts", systemImage: "curlybraces")
         }
     }
 }

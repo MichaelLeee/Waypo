@@ -54,6 +54,21 @@ struct ConnectionStatusStyleTests {
         #expect(Set(labels).count == Self.allStatuses.count)
     }
 
+    /// The identifier is what a script compares against, so it is spelled out
+    /// here rather than only being checked for uniqueness: renaming one is a
+    /// change to a documented interface.
+    @Test
+    func identifiersAreStableAndDistinct() {
+        let identifiers = Self.allStatuses.map { ConnectionStatusStyle($0).identifier }
+        #expect(Set(identifiers).count == Self.allStatuses.count)
+        #expect(ConnectionStatusStyle(.connected).identifier == "connected")
+        #expect(ConnectionStatusStyle(.connecting).identifier == "connecting")
+        #expect(ConnectionStatusStyle(.disconnecting).identifier == "disconnecting")
+        #expect(ConnectionStatusStyle(.disconnected).identifier == "disconnected")
+        #expect(ConnectionStatusStyle(.reasserting).identifier == "reasserting")
+        #expect(ConnectionStatusStyle(.invalid).identifier == "invalid")
+    }
+
     @Test
     func coloursTrackStatus() {
         #expect(ConnectionStatusStyle(.connected).color == Palette.positive)
