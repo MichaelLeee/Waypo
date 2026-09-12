@@ -36,7 +36,9 @@ protocol ScriptNotifying: Sendable {
 
 struct SystemScriptNotifier: ScriptNotifying {
     func post(title: String, subtitle: String?, body: String) {
-        let center = UNUserNotificationCenter.current()
+        // The centre is safe to use from any thread but is not marked Sendable,
+        // which only the handler's annotation would complain about.
+        nonisolated(unsafe) let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             // Nothing is requested here: the app asks for permission through
             // its own UI, and until then a notification is simply not shown.
