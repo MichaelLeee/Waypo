@@ -149,9 +149,12 @@ struct WaypoShortcuts: AppShortcutsProvider {
         )
         AppShortcut(
             intent: RunScriptIntent(),
+            // The phrase names no parameter: a script name is free text, and the
+            // metadata processor allows only an AppEntity or AppEnum in a phrase.
+            // The system asks for the name when the phrase leaves it out.
             phrases: [
-                "Run \(\.$name) in \(.applicationName)",
                 "Run a script in \(.applicationName)",
+                "Run my \(.applicationName) script",
             ],
             shortTitle: "Run Script",
             systemImageName: "curlybraces"
