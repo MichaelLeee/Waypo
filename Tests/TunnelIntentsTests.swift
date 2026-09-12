@@ -4,6 +4,6 @@ import Foundation
 struct TunnelIntentsTests {
     @Test
     func shortcutsAreRegistered() {
-        #expect(WaypoShortcuts.appShortcuts.count == 3)
+        #expect(WaypoShortcuts.appShortcuts.count == 4)
     }
 }

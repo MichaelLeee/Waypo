@@ -300,6 +300,8 @@ struct ServerListView: View {
                 Label("Scripts", systemImage: "curlybraces")
             }
 #endif
+            Button {
+                Task { await controller.checkAllLatencies() }
             } label: {
                 Label("Test Latency", systemImage: "antenna.radiowaves.left.and.right")
             }

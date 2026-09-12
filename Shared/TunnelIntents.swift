@@ -63,6 +63,59 @@ struct DisconnectIntent: AppIntent {
     }
 }
 
+/// Runs one script by name, the same way the Run Now button does.
+///
+/// The name is matched without regard to case, so a phrase a person speaks does
+/// not have to reproduce the capitalisation they typed. The run is a manual one,
+/// which is the trigger that goes ahead even for a script that is switched off:
+/// asking for it directly is the whole point. Nothing here binds to a
+/// controller's status changes, so no event script fires from this path.
+struct RunScriptIntent: AppIntent {
+    static let title: LocalizedStringResource = "Run Script"
+    static let description = IntentDescription(
+        "Runs one of the app's scripts by name, as if you had run it from the script list."
+    )
+    static let openAppWhenRun = false
+
+    @Parameter(title: "Script")
+    var name: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let controller = await headlessController()
+        let service = ScriptService.live(controller: controller)
+        service.load()
+
+        guard let script = service.scripts.first(where: { Self.matches($0.name, name) }) else {
+            return .result(dialog: IntentDialog(stringLiteral: "No script named \(name)."))
+        }
+        guard let record = await service.run(script.id, trigger: .manual) else {
+            return .result(dialog: IntentDialog(stringLiteral: "\(script.name) is already running."))
+        }
+        return .result(dialog: IntentDialog(stringLiteral: Self.dialog(for: record)))
+    }
+
+    private static func matches(_ candidate: String, _ name: String) -> Bool {
+        candidate.caseInsensitiveCompare(name) == .orderedSame
+    }
+
+    private static func dialog(for record: ScriptRunRecord) -> String {
+        switch record.outcome {
+        case .success:
+            guard let output = record.output, !output.isEmpty else {
+                return "\(record.scriptName) finished."
+            }
+            return "\(record.scriptName): \(output)"
+        case .timeout:
+            return "\(record.scriptName) ran out of time."
+        case .error:
+            return "\(record.scriptName) failed."
+        case .skipped:
+            return "\(record.scriptName) was stopped."
+        }
+    }
+}
+
 /// Exposes the intents to Siri phrases and the system search without
 /// needing a shortcut to be created first.
 struct WaypoShortcuts: AppShortcutsProvider {
@@ -93,6 +146,15 @@ struct WaypoShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Disconnect",
             systemImageName: "stop.circle"
+        )
+        AppShortcut(
+            intent: RunScriptIntent(),
+            phrases: [
+                "Run \(\.$name) in \(.applicationName)",
+                "Run a script in \(.applicationName)",
+            ],
+            shortTitle: "Run Script",
+            systemImageName: "curlybraces"
         )
     }
 }
