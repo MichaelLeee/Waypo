@@ -130,6 +130,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 #else
         let remoteAddress = config.servers.first?.host ?? "198.18.0.1"
         let packetFlow = self.packetFlow
+        // Hoisted so the settings completion handler captures the sampler
+        // rather than the provider, which is not Sendable.
+        let sampler = self.memorySampler
         logger.info("starting tunnel, remote=\(remoteAddress, privacy: .public)")
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: remoteAddress)
@@ -156,7 +159,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             Task {
                 do {
                     try await engine.start(configuration: config, packetFlow: flow)
-                    memorySampler.mark("extension-engine-started")
+                    sampler.mark("extension-engine-started")
                     logger.info("tunnel up (engine running)")
                     TunnelStore().saveStatusMirror(NEVPNStatus.connected.rawValue)
                     WidgetCenter.shared.reloadAllTimelines()
