@@ -13,11 +13,12 @@ struct RulesView: View {
 
     private var rules: [RoutingRule] { controller.configuration.rules }
     private var ruleSets: [RemoteRuleSet] { controller.configuration.ruleSets }
+    private var finalPolicy: FinalPolicy { controller.configuration.finalPolicy }
 
     var body: some View {
         NavigationStack {
             Group {
-                if rules.isEmpty && ruleSets.isEmpty {
+                if rules.isEmpty && ruleSets.isEmpty && finalPolicy.isDefault {
                     WaypoEmptyState(
                         "No Rules",
                         systemImage: "arrow.triangle.branch",
@@ -73,7 +74,7 @@ struct RulesView: View {
 
     private var lists: some View {
         List {
-            if !rules.isEmpty {
+            if !rules.isEmpty || !finalPolicy.isDefault {
                 Section {
                     ForEach(rules) { rule in
                         Button {
@@ -123,6 +124,7 @@ struct RulesView: View {
                         remaining.remove(atOffsets: offsets)
                         controller.updateRules(remaining)
                     }
+                    FinalPolicyRow(policy: finalPolicy, configuration: controller.configuration)
                 } header: {
                     Text("Rules")
                 } footer: {
@@ -196,23 +198,64 @@ private struct RuleRow: View {
     private var actionSummary: String {
         switch rule.action {
         case .route:
-            let target: String
-            if let id = rule.outboundID {
-                if let group = controller.configuration.groups.first(where: { $0.id == id }) {
-                    target = group.name
-                } else if let server = controller.configuration.servers.first(where: { $0.id == id }) {
-                    target = server.name
-                } else {
-                    target = "Unknown"
-                }
-            } else {
-                target = "Active Selection"
-            }
+            let target = RuleTarget.name(of: rule.outboundID, in: controller.configuration)
             return "Route via \(target)"
         case .reject:
             return "Reject"
         case .direct:
             return "Direct"
+        }
+    }
+}
+
+/// The name a routing target is shown by: a group, a server, or the active
+/// selection when nothing is named. Shared so a rule and the catch-all row
+/// cannot disagree about the same target.
+private enum RuleTarget {
+    static func name(of id: UUID?, in configuration: TunnelConfiguration) -> String {
+        guard let id else { return "Active Selection" }
+        if let group = configuration.groups.first(where: { $0.id == id }) {
+            return group.name
+        }
+        if let server = configuration.servers.first(where: { $0.id == id }) {
+            return server.name
+        }
+        return "Unknown"
+    }
+}
+
+/// The catch-all that decides where anything the rules did not match goes, and
+/// the last row of the list because that is when it is consulted. Read-only:
+/// an imported configuration's catch-all is worth seeing rather than silently
+/// applying.
+private struct FinalPolicyRow: View {
+    var policy: FinalPolicy
+    var configuration: TunnelConfiguration
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Everything Else")
+                    .foregroundStyle(.primary)
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(Palette.neutral)
+            }
+            Spacer()
+            StatusPill("Final", tone: .neutral)
+        }
+    }
+
+    private var summary: String {
+        switch policy.kind {
+        case .active:
+            return "Active Selection"
+        case .direct:
+            return "Direct"
+        case .reject:
+            return "Reject"
+        case .outbound:
+            return RuleTarget.name(of: policy.outboundID, in: configuration)
         }
     }
 }
