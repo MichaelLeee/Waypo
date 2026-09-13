@@ -417,4 +417,121 @@ struct TunnelConfigurationTests {
         controller.deleteGroup(group.id)
         #expect(controller.configuration.groups.isEmpty)
     }
+
+    @Test
+    func finalPolicyDefaultsToTheActiveSelection() throws {
+        let config = TunnelConfiguration(servers: [], mtu: 1500)
+        #expect(config.finalPolicy.kind == .active)
+        #expect(config.finalPolicy.outboundID == nil)
+        #expect(config.finalPolicy.isDefault)
+    }
+
+    @Test
+    func decodeWithoutFinalPolicyUsesTheActiveSelection() throws {
+        // Configurations persisted before the catch-all existed must still
+        // load, and must load meaning what they meant: the active selection.
+        let json = #"{"servers":[],"mtu":1500,"dnsAddresses":["1.1.1.1"]}"#
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.finalPolicy == .active)
+    }
+
+    @Test
+    func aDefaultFinalPolicyIsNotEncoded() throws {
+        // The field postdates the persisted format; a configuration that does
+        // not use it has to encode to exactly the bytes it used to.
+        let config = TunnelConfiguration(servers: [], mtu: 1500)
+        let json = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(config)) as? [String: Any]
+        #expect(json?["finalPolicy"] == nil)
+    }
+
+    @Test
+    func finalPolicyRoundTrips() throws {
+        let target = UUID()
+        let config = TunnelConfiguration(
+            servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+            mtu: 1500,
+            finalPolicy: FinalPolicy(kind: .outbound, outboundID: target)
+        )
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(TunnelConfiguration.self, from: data)
+        #expect(decoded == config)
+        #expect(decoded.finalPolicy.kind == .outbound)
+        #expect(decoded.finalPolicy.outboundID == target)
+    }
+
+    @Test
+    func directAndRejectFinalPoliciesRoundTrip() throws {
+        for kind in [FinalPolicy.Kind.direct, .reject] {
+            let config = TunnelConfiguration(servers: [], mtu: 1500,
+                                             finalPolicy: FinalPolicy(kind: kind, outboundID: nil))
+            let decoded = try JSONDecoder().decode(
+                TunnelConfiguration.self, from: try JSONEncoder().encode(config))
+            #expect(decoded.finalPolicy.kind == kind)
+        }
+    }
+
+    @Test
+    func subscriptionSurvivesAProfileRoundTrip() throws {
+        let suite = "test.waypo.store.subscription"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let info = SubscriptionUserInfo(
+            uploadBytes: 1_000,
+            downloadBytes: 2_000_000,
+            totalBytes: 10_000_000,
+            expiresAt: Date(timeIntervalSince1970: 1_900_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let subscription = Subscription(url: "https://example.com/sub",
+                                        interval: 21_600,
+                                        lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+                                        lastError: nil,
+                                        userInfo: info)
+        let profile = TunnelProfile(name: "Sub", configuration: .empty, subscription: subscription)
+
+        let store = TunnelStore(suiteName: suite)
+        try store.saveProfileSet(ProfileSet(profiles: [profile], activeProfileID: profile.id))
+        let loaded = store.loadProfileSet().profiles.first
+        #expect(loaded?.subscription == subscription)
+        #expect(loaded?.subscription?.userInfo?.totalBytes == 10_000_000)
+
+        // The profile carries it through a plain encode/decode as well.
+        let decoded = try JSONDecoder().decode(
+            TunnelProfile.self, from: try JSONEncoder().encode(profile))
+        #expect(decoded == profile)
+    }
+
+    @Test
+    func decodeWithoutSubscriptionLeavesItNil() throws {
+        // Profiles persisted before subscriptions existed have no such key.
+        let json = #"{"id":"11111111-2222-3333-4444-555555555555","name":"Old","configuration":{"servers":[],"mtu":1500,"dnsAddresses":["1.1.1.1"]}}"#
+        let profile = try JSONDecoder().decode(TunnelProfile.self, from: Data(json.utf8))
+        #expect(profile.subscription == nil)
+    }
+
+    @Test
+    func aStoredSubscriptionNeverReachesTheConfigurationMirror() throws {
+        // The extension reads the mirrored configuration, so anything the
+        // provider can see must be in the configuration and nothing else.
+        let suite = "test.waypo.store.subscription-mirror"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let profile = TunnelProfile(
+            name: "Sub",
+            configuration: TunnelConfiguration(
+                servers: [TunnelServer(name: "A", host: "198.51.100.1", port: 443)],
+                mtu: 1500),
+            subscription: Subscription(url: "https://example.com/sub")
+        )
+        try store.saveProfileSet(ProfileSet(profiles: [profile], activeProfileID: profile.id))
+
+        let mirrored = String(decoding: try JSONEncoder().encode(store.loadConfiguration()),
+                              as: UTF8.self)
+        #expect(!mirrored.contains("subscription"))
+        #expect(!mirrored.contains("example.com"))
+    }
 }

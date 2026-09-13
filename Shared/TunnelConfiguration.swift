@@ -162,7 +162,9 @@ struct PolicyGroup: Codable, Hashable, Sendable, Identifiable {
     var id: UUID = UUID()
     var name: String
     var kind: PolicyGroupKind
-    /// Server ids, in order. For `select` groups the first entry is the
+    /// Member ids, in order. An id may name a server or another group — the
+    /// community format allows both, and the engine accepts either as long as
+    /// the graph is acyclic. For `select` groups the first entry is the
     /// persisted selection, mirroring how the active server is kept at
     /// index 0 of the server list.
     var memberIDs: [TunnelServer.ID] = []
@@ -277,6 +279,31 @@ struct RemoteRuleSet: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+/// Where traffic goes when no rule matched.
+///
+/// A bare outbound id cannot express "everything else is direct" or
+/// "everything else is refused", and an imported configuration says exactly
+/// that, so the target is a kind plus an optional id rather than just an id.
+struct FinalPolicy: Hashable, Sendable, Codable {
+    enum Kind: String, Codable, Sendable, CaseIterable {
+        /// Whatever the user has selected in the top selector.
+        case active
+        case direct
+        case reject
+        case outbound
+    }
+
+    var kind: Kind = .active
+    /// Target for `.outbound`; a server or group id. Ignored otherwise.
+    var outboundID: UUID?
+
+    static let active = FinalPolicy()
+
+    /// True when this says nothing, which is what lets an existing stored or
+    /// mirrored configuration round-trip byte for byte.
+    var isDefault: Bool { kind == .active && outboundID == nil }
+}
+
 struct TunnelConfiguration: Hashable, Sendable {
     var servers: [TunnelServer]
     var groups: [PolicyGroup] = []
@@ -289,6 +316,8 @@ struct TunnelConfiguration: Hashable, Sendable {
     /// Ordered routing rules, evaluated before the final outbound.
     var rules: [RoutingRule] = []
     var ruleSets: [RemoteRuleSet] = []
+    /// The catch-all that applies after `rules`.
+    var finalPolicy: FinalPolicy = .active
 
     /// Plain resolver addresses, for consumers that only need hosts
     /// (the system tunnel settings). Assigning converts to UDP resolvers.
@@ -301,7 +330,7 @@ struct TunnelConfiguration: Hashable, Sendable {
          dnsAddresses: [String] = [], dnsResolvers: [DNSResolver]? = nil,
          dnsHosts: [DNSHostMapping] = [], fakeIPEnabled: Bool = false,
          fakeIPExclusions: [String] = [], rules: [RoutingRule] = [],
-         ruleSets: [RemoteRuleSet] = []) {
+         ruleSets: [RemoteRuleSet] = [], finalPolicy: FinalPolicy = .active) {
         self.servers = servers
         self.groups = groups
         self.mtu = mtu
@@ -313,6 +342,7 @@ struct TunnelConfiguration: Hashable, Sendable {
         self.fakeIPExclusions = fakeIPExclusions
         self.rules = rules
         self.ruleSets = ruleSets
+        self.finalPolicy = finalPolicy
     }
 
     static let `default` = TunnelConfiguration(
@@ -330,7 +360,7 @@ extension TunnelConfiguration: Codable {
     enum CodingKeys: String, CodingKey {
         case servers, groups, mtu
         case dnsResolvers, dnsHosts, fakeIPEnabled, fakeIPExclusions
-        case rules, ruleSets
+        case rules, ruleSets, finalPolicy
         case dnsAddresses
     }
 
@@ -347,6 +377,11 @@ extension TunnelConfiguration: Codable {
         }
         try container.encode(rules, forKey: .rules)
         try container.encode(ruleSets, forKey: .ruleSets)
+        // Omitted when it says nothing, so a configuration that never had one
+        // encodes to exactly the bytes it did before this field existed.
+        if !finalPolicy.isDefault {
+            try container.encode(finalPolicy, forKey: .finalPolicy)
+        }
     }
 
     /// `groups`, the DNS settings, and the rules postdate the original
@@ -370,5 +405,6 @@ extension TunnelConfiguration: Codable {
         fakeIPExclusions = try container.decodeIfPresent([String].self, forKey: .fakeIPExclusions) ?? []
         rules = try container.decodeIfPresent([RoutingRule].self, forKey: .rules) ?? []
         ruleSets = try container.decodeIfPresent([RemoteRuleSet].self, forKey: .ruleSets) ?? []
+        finalPolicy = try container.decodeIfPresent(FinalPolicy.self, forKey: .finalPolicy) ?? .active
     }
 }
