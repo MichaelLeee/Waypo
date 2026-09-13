@@ -41,6 +41,9 @@ final class TunnelController {
     /// decides whether request interception fits there.
     private(set) var memory: MemoryFootprint?
     private(set) var isTestingLatency = false
+    /// True while a source is being read, so a foreground refresh and a manual
+    /// one cannot both be in flight against the same profile.
+    private(set) var isRefreshingSubscription = false
     var configuration: TunnelConfiguration = .default
     private(set) var profiles: [TunnelProfile] = []
     private(set) var activeProfileID = UUID()
@@ -195,6 +198,11 @@ final class TunnelController {
 
     func deleteGroup(_ id: PolicyGroup.ID) {
         configuration.groups.removeAll { $0.id == id }
+        // A member may be another group, so the id has to leave both places or
+        // the remaining group keeps a member that resolves to nothing.
+        for index in configuration.groups.indices {
+            configuration.groups[index].memberIDs.removeAll { $0 == id }
+        }
         for index in configuration.rules.indices where configuration.rules[index].outboundID == id {
             configuration.rules[index].outboundID = nil
         }
@@ -368,18 +376,231 @@ final class TunnelController {
 
     // MARK: - Import
 
-    /// Adds servers parsed from share-link text, skipping duplicates.
-    /// Returns the number of servers actually added.
+    /// Reads a document and puts it where it belongs. The two destinations are
+    /// kept behind distinct methods rather than one call with a flag, because
+    /// only one of them replaces what the user is looking at: a whole
+    /// configuration becomes its own profile, and a plain list of entries is
+    /// appended to the profile already active.
+    @discardableResult
+    func importText(fromText text: String) -> ImportOutcome {
+        if let report = importConfiguration(fromText: text) {
+            return .configuration(report)
+        }
+        return .servers(added: importServers(fromText: text))
+    }
+
+    /// Turns a document into a new profile and makes it active. Nil when the
+    /// text is not a configuration at all, so the caller can fall back to the
+    /// entry reader. A document that *is* one but names no servers still
+    /// returns a report, carrying the reason no profile was created.
+    @discardableResult
+    func importConfiguration(fromText text: String) -> ImportReport? {
+        guard let parsed = ConfigurationImport.parse(text) else { return nil }
+        return adopt(parsed, subscription: nil, fallbackName: nil).report
+    }
+
+    /// Adds entries parsed from share-link text, skipping repeats both against
+    /// the profile and within the batch. Returns the number actually added.
     @discardableResult
     func importServers(fromText text: String) -> Int {
-        let parsed = ServerImport.parse(text)
-        let existing = Set(configuration.servers.map { "\($0.host):\($0.port):\($0.transport)" })
-        let fresh = parsed.filter { !existing.contains("\($0.host):\($0.port):\($0.transport)") }
+        var seen = Set(configuration.servers.map(Self.identity))
+        let fresh = ServerImport.parse(text).filter { seen.insert(Self.identity($0)).inserted }
         guard !fresh.isEmpty else { return 0 }
         configuration.servers.append(contentsOf: fresh)
         persist()
         return fresh.count
     }
+
+    /// Fetches a document and creates a profile from it that keeps itself
+    /// current. The profile is created even when the source said nothing about
+    /// the account, so a source that only serves a list of entries still works.
+    @discardableResult
+    func importSubscription(urlString: String, interval: TimeInterval,
+                            fetcher: any SubscriptionFetching = SubscriptionFetcher()) async
+        -> ImportOutcome {
+        guard !isRefreshingSubscription else { return .failure("Another update is already running.") }
+        isRefreshingSubscription = true
+        defer { isRefreshingSubscription = false }
+
+        let now = Date()
+        let fetched: SubscriptionFetchResult
+        do {
+            fetched = try await fetcher.fetch(urlString, now: now)
+        } catch {
+            return .failure(Self.describe(error))
+        }
+        guard let parsed = parseSubscriptionBody(fetched.text) else {
+            return .failure("The source returned nothing this app could read.")
+        }
+        let subscription = Subscription(
+            url: urlString,
+            interval: max(interval, Self.minimumInterval),
+            lastUpdated: now,
+            lastError: nil,
+            userInfo: fetched.userInfo)
+        let outcome = adopt(parsed, subscription: subscription,
+                            fallbackName: fetched.suggestedName
+                                ?? SubscriptionFetcher.hostLabel(urlString))
+        guard outcome.created else {
+            return .failure("The source returned nothing this app could read.")
+        }
+        return .configuration(outcome.report)
+    }
+
+    /// Re-reads every profile whose interval has elapsed. Called when the app
+    /// comes forward, which is the only refresh cadence that needs no
+    /// background scheduling.
+    func refreshDueSubscriptions(now: Date = Date(),
+                                 fetcher: any SubscriptionFetching = SubscriptionFetcher()) async {
+        guard !isRefreshingSubscription else { return }
+        isRefreshingSubscription = true
+        defer { isRefreshingSubscription = false }
+        let due = profiles.filter { profile in
+            profile.subscription.map { Self.isDue($0, now: now) } ?? false
+        }.map(\.id)
+        for id in due {
+            await performRefresh(for: id, force: false, now: now, fetcher: fetcher)
+        }
+    }
+
+    /// Re-reads one profile's source. A failure records why and leaves the
+    /// servers alone: a source that cannot be reached must not cost the user
+    /// the entries it already gave them.
+    func refreshSubscription(for profileID: TunnelProfile.ID, force: Bool = false,
+                             now: Date = Date(),
+                             fetcher: any SubscriptionFetching = SubscriptionFetcher()) async {
+        guard !isRefreshingSubscription else { return }
+        isRefreshingSubscription = true
+        defer { isRefreshingSubscription = false }
+        await performRefresh(for: profileID, force: force, now: now, fetcher: fetcher)
+    }
+
+    /// Stops keeping the active profile current, keeping what it last brought
+    /// in.
+    func detachSubscription() {
+        guard let index = profiles.firstIndex(where: { $0.id == activeProfileID }),
+              profiles[index].subscription != nil else { return }
+        profiles[index].subscription = nil
+        save()
+    }
+
+    /// A document with a source behind it is usually a whole configuration,
+    /// but share-link sources are common enough that a plain list has to work
+    /// too.
+    private func parseSubscriptionBody(_ text: String) -> ConfigurationImportResult? {
+        if let parsed = ConfigurationImport.parse(text) { return parsed }
+        let servers = ServerImport.parse(text)
+        guard !servers.isEmpty else { return nil }
+        var report = ImportReport()
+        report.serversImported = servers.count
+        return ConfigurationImportResult(
+            configuration: TunnelConfiguration(servers: servers, mtu: 1500),
+            report: report,
+            name: nil)
+    }
+
+    /// Creates a profile from a parsed document, or explains why it could not.
+    /// A document that names no servers is reported rather than turned into an
+    /// empty profile the user then has to delete.
+    private func adopt(_ parsed: ConfigurationImportResult, subscription: Subscription?,
+                       fallbackName: String?) -> (report: ImportReport, created: Bool) {
+        var report = parsed.report
+        guard !parsed.configuration.servers.isEmpty else {
+            report.notices.append(ImportNotice(
+                severity: .dropped,
+                section: .servers,
+                detail: "The document names no servers, so no profile was created."))
+            return (report, false)
+        }
+        // The outgoing profile is written as it stands before the switch, the
+        // same way switchProfile does it.
+        persist()
+        let profile = TunnelProfile(name: uniqueProfileName(parsed.name ?? fallbackName),
+                                    configuration: parsed.configuration,
+                                    subscription: subscription)
+        profiles.append(profile)
+        activeProfileID = profile.id
+        configuration = profile.configuration
+        latencies.removeAll()
+        save()
+        return (report, true)
+    }
+
+    /// A name that is not already taken, so two imports of the same document
+    /// can be told apart in the switcher.
+    private func uniqueProfileName(_ preferred: String?) -> String {
+        let trimmed = (preferred ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "Imported Configuration" : trimmed
+        let existing = Set(profiles.map(\.name))
+        guard existing.contains(base) else { return base }
+        var suffix = 2
+        while existing.contains("\(base) \(suffix)") { suffix += 1 }
+        return "\(base) \(suffix)"
+    }
+
+    private func performRefresh(for profileID: TunnelProfile.ID, force: Bool, now: Date,
+                                fetcher: any SubscriptionFetching) async {
+        guard let start = profiles.firstIndex(where: { $0.id == profileID }),
+              let subscription = profiles[start].subscription,
+              force || Self.isDue(subscription, now: now)
+        else { return }
+
+        let fetched: SubscriptionFetchResult
+        do {
+            fetched = try await fetcher.fetch(subscription.url, now: now)
+        } catch {
+            recordSubscriptionError(Self.describe(error), for: profileID)
+            return
+        }
+        // The profile may have been deleted, or its source removed, while the
+        // fetch was out.
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }),
+              profiles[index].subscription != nil else { return }
+        guard let parsed = parseSubscriptionBody(fetched.text),
+              !parsed.configuration.servers.isEmpty else {
+            recordSubscriptionError("The source returned nothing this app could read.",
+                                    for: profileID)
+            return
+        }
+        profiles[index].configuration = parsed.configuration
+        profiles[index].subscription?.lastUpdated = now
+        profiles[index].subscription?.lastError = nil
+        // A source that stops reporting account usage is no reason to forget
+        // what it last said.
+        if let userInfo = fetched.userInfo {
+            profiles[index].subscription?.userInfo = userInfo
+        }
+        if activeProfileID == profileID {
+            configuration = parsed.configuration
+        }
+        save()
+    }
+
+    /// Deliberately leaves `lastUpdated` alone, so a profile that failed stays
+    /// due and is retried at the next opportunity.
+    private func recordSubscriptionError(_ message: String, for profileID: TunnelProfile.ID) {
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }),
+              profiles[index].subscription != nil else { return }
+        profiles[index].subscription?.lastError = message
+        save()
+    }
+
+    private static func isDue(_ subscription: Subscription, now: Date) -> Bool {
+        guard let lastUpdated = subscription.lastUpdated else { return true }
+        return now.timeIntervalSince(lastUpdated) >= subscription.interval
+    }
+
+    private static func describe(_ error: Error) -> String {
+        (error as? SubscriptionFetchError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private static func identity(_ server: TunnelServer) -> String {
+        "\(server.host):\(server.port):\(server.transport)"
+    }
+
+    /// The shortest interval a source may be re-read at, so a stray value
+    /// cannot turn into a fetch loop.
+    private static let minimumInterval: TimeInterval = 3600
 
     // MARK: - Engine logs
 
@@ -439,6 +660,13 @@ final class TunnelController {
     private func persist() {
         guard let index = profiles.firstIndex(where: { $0.id == activeProfileID }) else { return }
         profiles[index].configuration = configuration
+        save()
+    }
+
+    /// Writes the profile set as it stands. Split from `persist()` because a
+    /// subscription refresh changes a profile that need not be the active one,
+    /// and mirroring the active configuration over it would undo the refresh.
+    private func save() {
         do {
             try store.saveProfileSet(ProfileSet(profiles: profiles, activeProfileID: activeProfileID))
             lastError = nil

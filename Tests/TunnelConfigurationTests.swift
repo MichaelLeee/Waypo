@@ -535,3 +535,421 @@ struct TunnelConfigurationTests {
         #expect(!mirrored.contains("example.com"))
     }
 }
+
+extension TunnelConfigurationTests {
+    /// A document with a name, one server, a group over it, and a catch-all.
+    private func sampleDocument(name: String = "Sample", host: String) -> String {
+        """
+        name: \(name)
+        proxies:
+          - name: \(name) Node
+            type: trojan
+            server: \(host)
+            port: 443
+            password: pw
+        proxy-groups:
+          - name: Pick
+            type: select
+            proxies:
+              - \(name) Node
+        rules:
+          - DOMAIN-SUFFIX,example.com,Pick
+          - MATCH,DIRECT
+        """
+    }
+
+    @Test
+    @MainActor
+    func importConfigurationCreatesAndSwitchesToANewProfile() {
+        let suite = "test.waypo.controller.import-config"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+        let originalID = controller.activeProfileID
+
+        let outcome = controller.importText(fromText: sampleDocument(host: "203.0.113.20"))
+        guard case .configuration(let report) = outcome else {
+            Issue.record("expected a configuration outcome, got \(outcome)")
+            return
+        }
+        #expect(report.serversImported == 1)
+        #expect(report.groupsImported == 1)
+        // The catch-all becomes the final policy, so it is not counted here.
+        #expect(report.rulesImported == 1)
+        #expect(controller.profiles.count == 2)
+        #expect(controller.activeProfile?.name == "Sample")
+        #expect(controller.activeProfileID != originalID)
+        #expect(controller.configuration.servers.map(\.name) == ["Sample Node"])
+        #expect(controller.configuration.finalPolicy.kind == .direct)
+
+        // The new profile is what a later launch loads, and the profile that
+        // was active before is untouched.
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.activeProfile?.name == "Sample")
+        #expect(reloaded.configuration.servers.map(\.name) == ["Sample Node"])
+        let original = reloaded.profiles.first { $0.id == originalID }
+        #expect(original?.configuration.servers.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
+    func importTextFallsBackToAppendingEntries() {
+        let suite = "test.waypo.controller.import-links"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        #expect(controller.importText(fromText: "trojan://pw@192.0.2.3:443#One")
+            == .servers(added: 1))
+        #expect(controller.profiles.count == 1)
+        #expect(controller.configuration.servers.map(\.name) == ["One"])
+        // A repeat of an entry already in the profile adds nothing.
+        #expect(controller.importText(fromText: "trojan://pw@192.0.2.3:443#One")
+            == .servers(added: 0))
+        #expect(controller.configuration.servers.count == 1)
+    }
+
+    @Test
+    @MainActor
+    func importSkipsRepeatsWithinOneBatch() {
+        let suite = "test.waypo.controller.import-batch"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let text = """
+        trojan://pw@192.0.2.3:443#One
+        trojan://pw@192.0.2.3:443#One again
+        """
+        #expect(controller.importServers(fromText: text) == 1)
+        #expect(controller.configuration.servers.map(\.name) == ["One"])
+    }
+
+    @Test
+    @MainActor
+    func aDocumentWithoutServersAddsNoProfile() {
+        let suite = "test.waypo.controller.import-empty"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let text = "proxy-groups:\n  - name: Pick\n    type: select\n"
+        let outcome = controller.importText(fromText: text)
+        guard case .configuration(let report) = outcome else {
+            Issue.record("expected a configuration outcome, got \(outcome)")
+            return
+        }
+        #expect(controller.profiles.count == 1)
+        #expect(report.droppedCount >= 1)
+        #expect(report.notices.contains { $0.detail.contains("no profile was created") })
+    }
+
+    @Test
+    @MainActor
+    func importingTheSameDocumentTwiceKeepsBothProfilesApart() {
+        let suite = "test.waypo.controller.import-duplicate"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        controller.importText(fromText: sampleDocument(host: "203.0.113.20"))
+        controller.importText(fromText: sampleDocument(host: "203.0.113.21"))
+
+        #expect(controller.profiles.count == 3)
+        let names = controller.profiles.suffix(2).map(\.name)
+        #expect(names == ["Sample", "Sample 2"])
+    }
+
+    @Test
+    @MainActor
+    func deleteGroupRemovesNestedMembership() {
+        let suite = "test.waypo.controller.delete-group"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let node = TunnelServer(name: "Node", host: "198.51.100.9", port: 443)
+        controller.addServer(node)
+        let inner = PolicyGroup(name: "Inner", kind: .select, memberIDs: [node.id])
+        controller.addGroup(inner)
+        let outer = PolicyGroup(name: "Outer", kind: .select, memberIDs: [inner.id, node.id])
+        controller.addGroup(outer)
+        #expect(controller.configuration.groups[1].memberIDs.count == 2)
+
+        controller.deleteGroup(inner.id)
+        #expect(controller.configuration.groups.count == 1)
+        #expect(controller.configuration.groups[0].memberIDs == [node.id])
+    }
+
+    @Test
+    @MainActor
+    func importingASubscriptionCreatesAProfileThatKeepsItselfCurrent() async throws {
+        let suite = "test.waypo.controller.subscription-import"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        let info = try #require(SubscriptionUserInfo.parse("upload=1024; download=2048; total=4096"))
+        let outcome = await controller.importSubscription(
+            urlString: url, interval: 21_600,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(host: "203.0.113.30"),
+                                                     userInfo: info, for: url))
+        guard case .configuration(let report) = outcome else {
+            Issue.record("expected a configuration outcome, got \(outcome)")
+            return
+        }
+        #expect(report.serversImported == 1)
+        #expect(controller.profiles.count == 2)
+
+        let profile = try #require(controller.activeProfile)
+        #expect(profile.name == "Sample")
+        #expect(profile.subscription?.url == url)
+        #expect(profile.subscription?.interval == 21_600)
+        #expect(profile.subscription?.lastUpdated != nil)
+        #expect(profile.subscription?.lastError == nil)
+        #expect(profile.subscription?.userInfo?.totalBytes == 4096)
+        #expect(controller.configuration.servers.map(\.name) == ["Sample Node"])
+
+        // The source survives a relaunch along with the servers.
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.activeProfile?.subscription?.url == url)
+        #expect(reloaded.activeProfile?.subscription?.interval == 21_600)
+    }
+
+    @Test
+    @MainActor
+    func refreshDueSubscriptionsHonoursTheInterval() async {
+        let suite = "test.waypo.controller.subscription-due"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        _ = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(name: "Alpha",
+                                                                    host: "203.0.113.31"),
+                                                     for: url))
+
+        let fetcher = FakeSubscriptionFetcher.alwaysServing(
+            sampleDocument(name: "Beta", host: "203.0.113.32"))
+        // Still inside the interval, so nothing is read.
+        await controller.refreshDueSubscriptions(fetcher: fetcher)
+        #expect(fetcher.requested.isEmpty)
+        #expect(controller.configuration.servers.map(\.name) == ["Alpha Node"])
+
+        await controller.refreshDueSubscriptions(now: Date().addingTimeInterval(2 * 86_400),
+                                                 fetcher: fetcher)
+        #expect(fetcher.requested == [url])
+        #expect(controller.configuration.servers.map(\.name) == ["Beta Node"])
+    }
+
+    @Test
+    @MainActor
+    func aRefreshReplacesTheServersAndKeepsTheProfileName() async throws {
+        let suite = "test.waypo.controller.subscription-refresh"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        _ = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(name: "Alpha",
+                                                                    host: "203.0.113.31"),
+                                                     for: url))
+        #expect(controller.configuration.servers.map(\.name) == ["Alpha Node"])
+
+        let id = controller.activeProfileID
+        let info = try #require(SubscriptionUserInfo.parse("upload=1024; total=4096"))
+        await controller.refreshSubscription(
+            for: id, force: true,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(name: "Beta",
+                                                                    host: "203.0.113.32"),
+                                                     userInfo: info, for: url))
+        // The document changed; the profile it belongs to did not.
+        #expect(controller.configuration.servers.map(\.name) == ["Beta Node"])
+        #expect(controller.activeProfile?.name == "Alpha")
+        #expect(controller.activeProfile?.subscription?.userInfo?.totalBytes == 4096)
+        #expect(controller.activeProfile?.subscription?.lastError == nil)
+
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.configuration.servers.map(\.name) == ["Beta Node"])
+    }
+
+    @Test
+    @MainActor
+    func aFailedRefreshKeepsThePreviousServersAndStaysDue() async throws {
+        let suite = "test.waypo.controller.subscription-failure"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        let info = try #require(SubscriptionUserInfo.parse("upload=7; total=4096"))
+        _ = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(name: "Alpha",
+                                                                    host: "203.0.113.31"),
+                                                     userInfo: info, for: url))
+        let id = controller.activeProfileID
+        let updatedAt = try #require(controller.activeProfile?.subscription?.lastUpdated)
+
+        await controller.refreshSubscription(
+            for: id, force: true, now: Date().addingTimeInterval(3_600),
+            fetcher: FakeSubscriptionFetcher.failing(.httpStatus(503), for: url))
+        #expect(controller.configuration.servers.map(\.name) == ["Alpha Node"])
+        #expect(controller.activeProfile?.subscription?.lastError?.contains("503") == true)
+        // The clock does not advance on a failure, so the profile stays due and
+        // is retried at the next opportunity.
+        #expect(controller.activeProfile?.subscription?.lastUpdated == updatedAt)
+        // A source that stops answering does not erase what it last reported.
+        #expect(controller.activeProfile?.subscription?.userInfo?.totalBytes == 4096)
+
+        // A later good answer replaces the servers and clears the message.
+        await controller.refreshSubscription(
+            for: id, force: true,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(name: "Beta",
+                                                                    host: "203.0.113.32"),
+                                                     for: url))
+        #expect(controller.configuration.servers.map(\.name) == ["Beta Node"])
+        #expect(controller.activeProfile?.subscription?.lastError == nil)
+        #expect(controller.activeProfile?.subscription?.userInfo?.totalBytes == 4096)
+    }
+
+    @Test
+    @MainActor
+    func detachingASubscriptionKeepsTheServers() async throws {
+        let suite = "test.waypo.controller.subscription-detach"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        _ = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.serving(sampleDocument(host: "203.0.113.31"),
+                                                     for: url))
+
+        controller.detachSubscription()
+        #expect(controller.activeProfile?.subscription == nil)
+        #expect(controller.configuration.servers.map(\.name) == ["Sample Node"])
+
+        let reloaded = TunnelController(store: store)
+        reloaded.reloadProfiles()
+        #expect(reloaded.activeProfile?.subscription == nil)
+        #expect(reloaded.configuration.servers.count == 1)
+    }
+
+    @Test
+    @MainActor
+    func aSourceThatServesOnlyEntriesBecomesAProfileNamedAfterIt() async throws {
+        let suite = "test.waypo.controller.subscription-entries"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        let outcome = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.serving("trojan://pw@192.0.2.40:443#One",
+                                                     suggestedName: "Provider", for: url))
+        guard case .configuration(let report) = outcome else {
+            Issue.record("expected a configuration outcome, got \(outcome)")
+            return
+        }
+        #expect(report.serversImported == 1)
+        #expect(controller.activeProfile?.name == "Provider")
+        #expect(controller.profiles.count == 2)
+    }
+
+    @Test
+    @MainActor
+    func aDocumentWithoutANameFallsBackToTheSourceHost() async {
+        let suite = "test.waypo.controller.subscription-host-name"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "https://provider.example.com/sub"
+        let document = """
+        proxies:
+          - name: Node
+            type: trojan
+            server: 203.0.113.50
+            port: 443
+            password: pw
+        """
+        _ = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.serving(document, for: url))
+        #expect(controller.activeProfile?.name == "provider.example.com")
+    }
+
+    @Test
+    @MainActor
+    func aSourceThatCannotBeReachedAddsNoProfile() async {
+        let suite = "test.waypo.controller.subscription-unreachable"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = TunnelStore(suiteName: suite)
+        let controller = TunnelController(store: store)
+        controller.reloadProfiles()
+
+        let url = "ftp://provider.example.com/sub"
+        let outcome = await controller.importSubscription(
+            urlString: url, interval: 86_400,
+            fetcher: FakeSubscriptionFetcher.failing(.unsupportedScheme("ftp"), for: url))
+        guard case .failure(let message) = outcome else {
+            Issue.record("expected a failure, got \(outcome)")
+            return
+        }
+        #expect(message.contains("http and https"))
+        #expect(controller.profiles.count == 1)
+        #expect(controller.configuration.servers.isEmpty)
+    }
+}
