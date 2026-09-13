@@ -1,5 +1,23 @@
 import Foundation
 
+/// The outcome of reading one document's list of servers: what came out, and
+/// what did not, each with the sentence explaining why.
+///
+/// The two are returned together rather than as a plain array so an importer
+/// can say what it skipped instead of only what it kept.
+struct ProxyParseResult: Sendable {
+    var servers: [TunnelServer] = []
+    var skipped: [SkippedProxy] = []
+}
+
+/// A server entry that yielded nothing, and why. `detail` is written as the
+/// sentence the user reads.
+struct SkippedProxy: Hashable, Sendable {
+    var name: String
+    var type: String?
+    var detail: String
+}
+
 /// Parses share-link entries into configuration values.
 /// Supported schemes: trojan, vless, ss (both SIP002 and legacy encodings),
 /// hysteria2 (and its hy2 alias), tuic, vmess (base64-JSON body), wireguard,
@@ -9,7 +27,7 @@ enum ServerImport {
         if text.contains("[Interface]"), let conf = parseWireGuardConf(text) {
             return [conf]
         }
-        if looksLikeYAML(text) {
+        if looksLikeConfiguration(text) {
             let parsed = parseYAML(text)
             if !parsed.isEmpty { return parsed }
         }
@@ -352,16 +370,45 @@ enum ServerImport {
 
     // MARK: - Community YAML configuration
 
-    private static func looksLikeYAML(_ text: String) -> Bool {
-        // A top-level `proxies:` key at column zero is the community format.
-        text.split(whereSeparator: \.isNewline).contains { $0.hasPrefix("proxies:") }
+    static func looksLikeConfiguration(_ text: String) -> Bool {
+        ConfigurationImport.isConfigurationDocument(text)
     }
 
     static func parseYAML(_ text: String) -> [TunnelServer] {
-        guard let document = SubscriptionYAML.parseDocument(text),
-              let proxies = document["proxies"] as? [[String: Any]]
-        else { return [] }
-        return proxies.compactMap(server(fromProxy:))
+        guard let document = SubscriptionYAML.parseDocument(text) else { return [] }
+        return parseProxies(document["proxies"]).servers
+    }
+
+    /// Reads one document's list of servers, keeping the entries that produced
+    /// nothing so the caller can report them.
+    ///
+    /// `server(fromProxy:)` has no way to say why it gave up, and the caller
+    /// needs to tell "this type is not supported" from "this entry is missing
+    /// an address", so the reason is worked out here.
+    static func parseProxies(_ raw: Any?) -> ProxyParseResult {
+        guard let proxies = raw as? [[String: Any]] else { return ProxyParseResult() }
+        var result = ProxyParseResult()
+        for proxy in proxies {
+            if let server = server(fromProxy: proxy) {
+                result.servers.append(server)
+                continue
+            }
+            let name = stringField(proxy, "name") ?? stringField(proxy, "server") ?? "An entry"
+            let type = stringField(proxy, "type")?.lowercased()
+            let host = stringField(proxy, "server")
+            let detail: String
+            if type == nil {
+                detail = "“\(name)” has no type and was left out."
+            } else if host == nil || host!.isEmpty {
+                detail = "“\(name)” has no address and was left out."
+            } else if intField(proxy, "port") == nil {
+                detail = "“\(name)” has no port and was left out."
+            } else {
+                detail = "“\(name)” uses type “\(type!)”, which is not supported."
+            }
+            result.skipped.append(SkippedProxy(name: name, type: type, detail: detail))
+        }
+        return result
     }
 
     private static func server(fromProxy proxy: [String: Any]) -> TunnelServer? {

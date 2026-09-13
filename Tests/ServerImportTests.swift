@@ -410,4 +410,66 @@ extension ServerImportTests {
         #expect(st.cipher == "aes-128-gcm")
         #expect(st.useTLS == false)
     }
+
+    @Test
+    func aConfigurationIsRecognizedFromAnyOfItsSections() {
+        // The detection is what decides whether the community-format reader is
+        // tried at all, so a document without a `proxies` block still has to be
+        // recognized as one.
+        #expect(ServerImport.looksLikeConfiguration("proxy-groups:\n  - name: Pick\n    type: select"))
+        #expect(ServerImport.looksLikeConfiguration("rules:\n  - MATCH,DIRECT"))
+        #expect(ServerImport.looksLikeConfiguration("dns:\n  nameserver: 1.1.1.1"))
+        #expect(ServerImport.looksLikeConfiguration("proxies:\n  - name: A\n    type: trojan"))
+    }
+
+    @Test
+    func aShareLinkIsNotAConfiguration() {
+        let link = "trojan://pass@example.com:443#Node"
+        #expect(!ServerImport.looksLikeConfiguration(link))
+        let servers = ServerImport.parse(link)
+        #expect(servers.count == 1)
+        #expect(servers.first?.name == "Node")
+    }
+
+    @Test
+    func aDocumentWithSectionsButNoServersYieldsNoServers() {
+        // The compatibility path only ever returns servers, so a groups-only
+        // document is recognized and then produces nothing here. The
+        // configuration reader is what handles the rest.
+        let yaml = """
+        proxy-groups:
+          - name: Pick
+            type: select
+        """
+        #expect(ServerImport.looksLikeConfiguration(yaml))
+        #expect(ServerImport.parse(yaml).isEmpty)
+        #expect(ServerImport.parseYAML(yaml).isEmpty)
+    }
+
+    @Test
+    func parseProxiesSaysWhyAnEntryWasSkipped() {
+        let proxies: [[String: Any]] = [
+            ["name": "Good", "type": "trojan", "server": "203.0.113.10", "port": 443, "password": "p"],
+            ["name": "NoType", "server": "203.0.113.11", "port": 443],
+            ["name": "NoHost", "type": "trojan", "port": 443],
+            ["name": "NoPort", "type": "trojan", "server": "203.0.113.12"],
+            ["name": "Odd", "type": "quantum", "server": "203.0.113.13", "port": 443],
+        ]
+        let result = ServerImport.parseProxies(proxies)
+        #expect(result.servers.map(\.name) == ["Good"])
+        #expect(result.skipped.map(\.name) == ["NoType", "NoHost", "NoPort", "Odd"])
+        let expectedTypes: [String?] = [nil, "trojan", "trojan", "quantum"]
+        #expect(result.skipped.map(\.type) == expectedTypes)
+        #expect(result.skipped[0].detail.contains("no type"))
+        #expect(result.skipped[1].detail.contains("no address"))
+        #expect(result.skipped[2].detail.contains("no port"))
+        #expect(result.skipped[3].detail.contains("not supported"))
+    }
+
+    @Test
+    func parseProxiesToleratesAValueThatIsNotAList() {
+        #expect(ServerImport.parseProxies(nil).servers.isEmpty)
+        #expect(ServerImport.parseProxies("not a list").servers.isEmpty)
+        #expect(ServerImport.parseProxies(["a", "b"]).servers.isEmpty)
+    }
 }
