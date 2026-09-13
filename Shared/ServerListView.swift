@@ -88,6 +88,7 @@ struct ServerListView: View {
         } else {
 #if os(macOS)
             List(selection: $selection) {
+                subscriptionSection
                 rows
             }
             .listStyle(.sidebar)
@@ -104,11 +105,42 @@ struct ServerListView: View {
                         }
                     }
                 }
+                subscriptionSection
                 Section("Servers") {
                     rows
                 }
             }
 #endif
+        }
+    }
+
+    /// Present only when the profile on screen came from a remote source. This
+    /// is where the account reading lives once the import sheet is closed —
+    /// without it, a source that reports a quota would only ever show it once.
+    @ViewBuilder
+    private var subscriptionSection: some View {
+        if let subscription = controller.activeProfile?.subscription {
+            Section("Subscription") {
+                SubscriptionSummary(userInfo: subscription.userInfo,
+                                    lastUpdated: subscription.lastUpdated,
+                                    lastError: subscription.lastError)
+                Button {
+                    Task {
+                        await controller.refreshSubscription(for: controller.activeProfileID,
+                                                              force: true)
+                    }
+                } label: {
+                    Label("Refresh Now", systemImage: "arrow.clockwise")
+                }
+                .disabled(controller.isRefreshingSubscription)
+                if controller.isRefreshingSubscription {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Checking the source…")
+                            .foregroundStyle(Palette.neutral)
+                    }
+                }
+            }
         }
     }
 

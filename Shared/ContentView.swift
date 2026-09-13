@@ -35,13 +35,19 @@ struct ContentView: View {
         .tint(Palette.accent)
         .task {
             await controller.refresh()
+            // Launch and coming forward are the only cadences a profile that
+            // keeps itself current needs; the app has no background scheduling,
+            // so this is where "auto-update" actually happens.
+            await controller.refreshDueSubscriptions()
             service.bind(to: controller)
             service.start()
             // After `start()`, which is what loads the scripts.
             service.noteAppLaunched()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { service.noteAppForeground() }
+            guard phase == .active else { return }
+            service.noteAppForeground()
+            Task { await controller.refreshDueSubscriptions() }
         }
     }
 }
