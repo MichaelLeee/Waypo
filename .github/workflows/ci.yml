@@ -70,9 +70,41 @@ jobs:
       - name: Select newest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
 
+      # The built-in cache keys on go.sum, which does not exist until the engine
+      # source is cloned below, so it can never hit and reports that failure as a
+      # warning on every run. Replaced with an explicit cache over the paths that
+      # actually cost time: the module download cache, the compiled
+      # gomobile/gobind toolchain, and the compile cache the engine build uses.
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache: false
+
+      - name: Locate Go cache paths
+        id: gocache
+        run: |
+          {
+            echo "mod=$(go env GOMODCACHE)"
+            echo "build=$(go env GOCACHE)"
+            echo "bin=$(go env GOPATH)/bin"
+          } >> "$GITHUB_OUTPUT"
+
+      # Actions cache entries are immutable per key, so a fixed key would be saved
+      # once and reused forever, going stale as upstream moves. The run_id forces a
+      # fresh save each run while restore-keys pick up the newest prefix match. The
+      # build cache is content-addressed, so changed engine source simply misses
+      # rather than serving a stale compile.
+      - name: Cache Go modules and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.mod }}
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.bin }}
+          key: go-${{ runner.os }}-${{ hashFiles('Core/build-library.sh') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('Core/build-library.sh') }}-
+            go-${{ runner.os }}-
 
       - name: Build engine library
         working-directory: Core
