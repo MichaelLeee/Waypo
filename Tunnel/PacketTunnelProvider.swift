@@ -17,8 +17,67 @@ private struct StopHandler: @unchecked Sendable {
     func callAsFunction() { handler() }
 }
 
+/// Samples this process's memory while the tunnel is up.
+///
+/// The app-side figure comes from the harness, which is a different process
+/// without the extension loader or the device's limit. This is the only place
+/// the real number can be read, so the readings are labelled by phase and kept
+/// for the app to collect: the interesting quantity is not the current value
+/// but how the value moves between phases.
+///
+/// The lock is what keeps the timer and the message handler off each other's
+/// memory; sampling itself is a synchronous `task_info` call and never touches
+/// the packet path.
+private final class MemorySampler: @unchecked Sendable {
+    /// Frequent enough to catch a slow climb, rare enough to be free.
+    static let interval: TimeInterval = 60
+
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "org.waypo.memory")
+    private var trace = MemoryTrace()
+    private var timer: DispatchSourceTimer?
+
+    func mark(_ label: String) {
+        lock.lock()
+        trace.mark(label)
+        lock.unlock()
+    }
+
+    /// Starts the periodic sampling and records the opening reading. Calling
+    /// it twice is harmless; a stop before a start is a no-op.
+    func start() {
+        mark("extension-start")
+        lock.lock()
+        defer { lock.unlock() }
+        guard timer == nil else { return }
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: .now() + Self.interval,
+                        repeating: .seconds(Int(Self.interval)))
+        // Weakly, so the timer does not keep the provider alive and the
+        // provider does not keep the timer's handler alive.
+        source.setEventHandler { [weak self] in self?.mark("extension-periodic") }
+        source.resume()
+        timer = source
+    }
+
+    func stop() {
+        mark("extension-stop")
+        lock.lock()
+        timer?.cancel()
+        timer = nil
+        lock.unlock()
+    }
+
+    func snapshot() -> MemoryTrace {
+        lock.lock()
+        defer { lock.unlock() }
+        return trace
+    }
+}
+
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let logger = Logger(subsystem: "org.waypo", category: "packet-tunnel")
+    private let memorySampler = MemorySampler()
 
 #if canImport(Libbox)
     /// The engine hands itself over to stopTunnel across concurrency domains.
@@ -46,6 +105,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let config = TunnelStore().loadConfiguration()
         let completion = CompletionHandler(completionHandler)
         let logger = self.logger
+        memorySampler.start()
 
 #if canImport(Libbox)
         // The engine applies network settings and claims the tun fd itself.
@@ -55,6 +115,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         Task {
             do {
                 try await engine.start(configuration: config, packetFlow: packetFlow)
+                memorySampler.mark("extension-engine-started")
                 logger.info("tunnel up (real engine)")
                 TunnelStore().saveStatusMirror(NEVPNStatus.connected.rawValue)
                 WidgetCenter.shared.reloadAllTimelines()
@@ -95,6 +156,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             Task {
                 do {
                     try await engine.start(configuration: config, packetFlow: flow)
+                    memorySampler.mark("extension-engine-started")
                     logger.info("tunnel up (engine running)")
                     TunnelStore().saveStatusMirror(NEVPNStatus.connected.rawValue)
                     WidgetCenter.shared.reloadAllTimelines()
@@ -109,6 +171,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         logger.info("stopping tunnel, reason=\(reason.rawValue)")
+        memorySampler.stop()
         TunnelStore().saveStatusMirror(NEVPNStatus.disconnected.rawValue)
         WidgetCenter.shared.reloadAllTimelines()
 #if canImport(Libbox)
@@ -125,6 +188,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func handleAppMessage(_ messageData: Data, completionHandler: (@Sendable (Data?) -> Void)?) {
+        // Answered in every build: the trace records what this process costs
+        // regardless of which engine is inside it.
+        if messageData == Data("memory".utf8) {
+            completionHandler?(try? JSONEncoder().encode(memorySampler.snapshot()))
+            return
+        }
 #if canImport(Libbox)
         if let message = String(data: messageData, encoding: .utf8) {
             if message == "logs" {

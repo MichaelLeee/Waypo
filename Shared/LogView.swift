@@ -12,7 +12,13 @@ struct LogView: View {
 
     var body: some View {
         NavigationStack {
-            content
+            VStack(spacing: 0) {
+                if let memory = controller.memory {
+                    memoryRow(memory)
+                    Divider()
+                }
+                content
+            }
                 .navigationTitle("Engine Logs")
                 .inlineTitleOnIOS()
                 .toolbar {
@@ -62,6 +68,27 @@ struct LogView: View {
                     .padding()
             }
         }
+    }
+
+    /// Only the extension process can see the figure it is actually limited by,
+    /// so this row is the only place the real headroom is visible. It appears
+    /// once the extension has answered; before that the row is absent rather
+    /// than showing a number measured somewhere else.
+    private func memoryRow(_ memory: MemoryFootprint) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "memorychip")
+                .foregroundStyle(Palette.neutral)
+            Text(memory.displayLine)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(memory.isNearBudget ? Palette.caution : Color.primary)
+            Spacer(minLength: 8)
+            Text(memory.label)
+                .font(.caption2)
+                .foregroundStyle(Palette.neutral)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
     }
 
     private func load() async {

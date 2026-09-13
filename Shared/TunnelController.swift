@@ -36,6 +36,10 @@ final class TunnelController {
     private(set) var latencies: [TunnelServer.ID: Double] = [:]
     private(set) var groupStates: [PolicyGroupState] = []
     private(set) var connections: [EngineConnection] = []
+    /// The extension's own memory reading. Only the extension process can see
+    /// the figure it is actually limited by, so this is the number that
+    /// decides whether request interception fits there.
+    private(set) var memory: MemoryFootprint?
     private(set) var isTestingLatency = false
     var configuration: TunnelConfiguration = .default
     private(set) var profiles: [TunnelProfile] = []
@@ -232,10 +236,17 @@ final class TunnelController {
         if status == .connected {
             guard statsTask == nil else { return }
             statsTask = Task { [weak self] in
+                var tick = 0
                 while !Task.isCancelled {
                     await self?.pollStats()
                     await self?.pollGroups()
                     await self?.pollConnections()
+                    // The extension samples once a minute, so asking at the
+                    // same rate would only fetch a reading already in hand.
+                    if tick.isMultiple(of: 60) {
+                        await self?.pollMemory()
+                    }
+                    tick += 1
                     try? await Task.sleep(for: .seconds(1))
                 }
             }
@@ -245,6 +256,7 @@ final class TunnelController {
             traffic = nil
             groupStates = []
             connections = []
+            memory = nil
         }
     }
 
@@ -297,6 +309,23 @@ final class TunnelController {
               let list = try? JSONDecoder().decode([EngineConnection].self, from: response)
         else { return }
         connections = list
+    }
+
+    private func pollMemory() async {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let response: Data? = await withCheckedContinuation { continuation in
+            do {
+                try session.sendProviderMessage(Data("memory".utf8)) { reply in
+                    continuation.resume(returning: reply)
+                }
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        guard let response, let trace = try? JSONDecoder().decode(MemoryTrace.self, from: response) else {
+            return
+        }
+        memory = trace.latest
     }
 
     /// Asks the engine to close one live connection.
