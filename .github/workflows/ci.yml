@@ -39,18 +39,34 @@ jobs:
 
       # Compiler output is otherwise buried in the step log, which needs an
       # authenticated session to read. Annotations are visible on the run page.
+      #
+      # Failures and warnings are gathered separately. A green run already emits
+      # ~60 warnings, so one merged list truncated to 30 lines is entirely
+      # warnings and the actual failure never reaches the run page. A test
+      # failure prints "recorded an issue", which contains no "error: ", so an
+      # error-only grep would miss it too.
       - name: Report diagnostics
         if: failure()
         run: |
-          {
-            grep -hE '(error|warning): ' build-*.log test.log 2>/dev/null | sort -u | head -30
-            grep -hA4 'The following build commands failed' build-*.log test.log 2>/dev/null | head -20
-          } > summary.txt || true
+          NEWEST=$(ls -t build-*.log test.log 2>/dev/null | head -1)
+          grep -haE 'error: |recorded an issue|✘ |failed after' build-*.log test.log 2>/dev/null \
+            | sort -u | head -40 > failures.txt || true
           # Nothing matched the usual shapes, so fall back to the tail of the
           # most recently written log rather than reporting silence.
-          if [ ! -s summary.txt ]; then
-            tail -30 "$(ls -t build-*.log test.log 2>/dev/null | head -1)" > summary.txt || true
+          if [ ! -s failures.txt ]; then
+            {
+              echo "no error-shaped line matched; tail of $NEWEST follows"
+              tail -40 "$NEWEST" 2>/dev/null
+            } > failures.txt || true
           fi
+          # Warnings go to the summary as context, not to the annotations: they
+          # are numerous on a green run and would bury the failure on the run page.
+          {
+            cat failures.txt
+            grep -haA4 'The following build commands failed' build-*.log test.log 2>/dev/null | head -20
+            echo '--- warnings (context only) ---'
+            grep -haE 'warning: ' build-*.log test.log 2>/dev/null | sort -u | head -15
+          } > summary.txt || true
           {
             echo '### Diagnostics'
             echo '```'
@@ -59,7 +75,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           while IFS= read -r line; do
             echo "::error::$line"
-          done < summary.txt
+          done < failures.txt
 
   engine:
     runs-on: macos-26
