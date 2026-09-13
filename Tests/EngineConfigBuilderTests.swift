@@ -556,4 +556,153 @@ struct EngineConfigBuilderTests {
         #expect(wg["pre_shared_key"] == nil)
         #expect(wg["reserved"] == nil)
     }
+
+    // MARK: - Nested groups
+
+    /// A configuration whose only server carries the given id, for the
+    /// nesting tests that care about the graph rather than the transport.
+    private func anchored(_ serverID: UUID, groups: [PolicyGroup]) -> TunnelConfiguration {
+        TunnelConfiguration(
+            servers: [
+                TunnelServer(id: serverID, name: "A", host: "198.51.100.1", port: 443,
+                             transport: "trojan", credentials: "p"),
+            ],
+            groups: groups,
+            mtu: 1500,
+            dnsAddresses: ["1.1.1.1"]
+        )
+    }
+
+    @Test
+    func aGroupMayNameAnotherGroup() throws {
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let inner = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let outer = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let config = anchored(server, groups: [
+            PolicyGroup(id: inner, name: "Inner", kind: .select, memberIDs: [server]),
+            PolicyGroup(id: outer, name: "Outer", kind: .select, memberIDs: [inner, server]),
+        ])
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let outbounds = json["outbounds"] as! [[String: Any]]
+        let byTag = Dictionary(uniqueKeysWithValues: outbounds.map { ($0["tag"] as! String, $0) })
+
+        // The outer group lists the inner group's tag, which is what makes
+        // the nesting functional instead of silently dropped.
+        let outerOutbound = byTag[outer.uuidString]!
+        #expect(outerOutbound["outbounds"] as? [String] == [inner.uuidString, server.uuidString])
+
+        let selector = outbounds.first { $0["tag"] as? String == "out" }!
+        #expect(selector["outbounds"] as? [String] ==
+                [inner.uuidString, outer.uuidString, server.uuidString])
+    }
+
+    @Test
+    func aGroupOfGroupsIsEmittedOnceTheChainReachesAServer() throws {
+        // The top group names only another group; the anchor is found one
+        // step further down, so the rule cannot be "has a server member".
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let middle = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let top = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let config = anchored(server, groups: [
+            PolicyGroup(id: top, name: "Top", kind: .select, memberIDs: [middle]),
+            PolicyGroup(id: middle, name: "Middle", kind: .select, memberIDs: [server]),
+        ])
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let byTag = Dictionary(uniqueKeysWithValues: (json["outbounds"] as! [[String: Any]])
+            .map { ($0["tag"] as! String, $0) })
+
+        #expect(byTag[top.uuidString]?["outbounds"] as? [String] == [middle.uuidString])
+        #expect(byTag[middle.uuidString]?["outbounds"] as? [String] == [server.uuidString])
+    }
+
+    @Test
+    func aGroupCycleIsNotEmitted() throws {
+        // Two groups naming only each other reach no server, so neither can
+        // be handed to the engine. The server itself is unaffected.
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let first = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let second = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let config = anchored(server, groups: [
+            PolicyGroup(id: first, name: "First", kind: .select, memberIDs: [second]),
+            PolicyGroup(id: second, name: "Second", kind: .select, memberIDs: [first]),
+        ])
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let outbounds = json["outbounds"] as! [[String: Any]]
+        let byTag = Dictionary(uniqueKeysWithValues: outbounds.map { ($0["tag"] as! String, $0) })
+
+        #expect(byTag[first.uuidString] == nil)
+        #expect(byTag[second.uuidString] == nil)
+        let selector = outbounds.first { $0["tag"] as? String == "out" }!
+        #expect(selector["outbounds"] as? [String] == [server.uuidString])
+    }
+
+    @Test
+    func aGroupThatNamesItselfDoesNotListItself() throws {
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let loop = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let config = anchored(server, groups: [
+            PolicyGroup(id: loop, name: "Loop", kind: .select, memberIDs: [loop, server]),
+        ])
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        let byTag = Dictionary(uniqueKeysWithValues: (json["outbounds"] as! [[String: Any]])
+            .map { ($0["tag"] as! String, $0) })
+
+        // The group is still usable through its server member; only the
+        // reference to its own tag is removed.
+        #expect(byTag[loop.uuidString]?["outbounds"] as? [String] == [server.uuidString])
+    }
+
+    // MARK: - The catch-all
+
+    private func routeRules(_ policy: FinalPolicy, server: UUID) throws -> [[String: Any]] {
+        var config = anchored(server, groups: [])
+        config.finalPolicy = policy
+        let json = try parse(config, inbound: .tun(autoRoute: true))
+        return (json["route"] as! [String: Any])["rules"] as! [[String: Any]]
+    }
+
+    @Test
+    func aCatchAllTargetBecomesATrailingRule() throws {
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+
+        let direct = try routeRules(FinalPolicy(kind: .direct), server: server)
+        #expect(direct.last?["action"] as? String == "direct")
+
+        let reject = try routeRules(FinalPolicy(kind: .reject), server: server)
+        #expect(reject.last?["action"] as? String == "reject")
+
+        let named = try routeRules(FinalPolicy(kind: .outbound, outboundID: server), server: server)
+        #expect(named.last?["outbound"] as? String == server.uuidString)
+    }
+
+    @Test
+    func aCatchAllNamingNothingKnownFallsBackToTheActiveSelection() throws {
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let named = try routeRules(
+            FinalPolicy(kind: .outbound, outboundID: UUID()), server: server)
+        #expect(named.last?["outbound"] as? String == "out")
+    }
+
+    @Test
+    func theDefaultCatchAllAddsNoRule() throws {
+        // A configuration that says nothing about its catch-all has to
+        // produce exactly the document it produced before the policy existed.
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        var config = anchored(server, groups: [])
+        let before = try EngineConfigBuilder.makeContent(config, inbound: .tun(autoRoute: true))
+        config.finalPolicy = .active
+        let after = try EngineConfigBuilder.makeContent(config, inbound: .tun(autoRoute: true))
+        #expect(config.finalPolicy.isDefault)
+        #expect(before == after)
+    }
+
+    @Test
+    func harnessModeIgnoresTheCatchAll() throws {
+        let server = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        var config = anchored(server, groups: [])
+        config.finalPolicy = FinalPolicy(kind: .reject)
+        let json = try parse(config, inbound: .tun(autoRoute: false))
+        let routeRules = (json["route"] as! [String: Any])["rules"] as! [[String: Any]]
+        #expect(routeRules.count == 2)
+    }
 }

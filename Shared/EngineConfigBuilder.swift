@@ -115,6 +115,10 @@ enum EngineConfigBuilder {
         // A direct transport has no remote endpoint; it becomes the final
         // outbound itself, which is what the harness self-test uses.
         let outbounds: [[String: Any]]
+        // Every tag that ends up in the outbound list at the end of this
+        // branch, so a catch-all naming a group or a server can fall back to
+        // the active selection when the name resolves to nothing.
+        var emittedTags: Set<String> = []
         if remoteOutbounds.isEmpty {
             outbounds = [["type": "direct", "tag": "out"]]
         } else {
@@ -246,15 +250,41 @@ enum EngineConfigBuilder {
                 serverOutbounds.append(outbound)
                 memberTags.append(server.id.uuidString)
             }
-            let tagByMemberID = Dictionary(
+            let serverTagByID = Dictionary(
                 uniqueKeysWithValues: zip(remoteOutbounds.map(\.id), memberTags)
             )
+            // A member names a server or another group, and a group tag is
+            // only usable once that group itself can be emitted. The fixed
+            // point below resolves the nesting whatever order the groups are
+            // stored in and leaves out any group that can never reach a
+            // server: a pure cycle has no anchor, so the engine is never
+            // handed a group that leads nowhere.
+            var emittable: Set<UUID> = []
+            var grew = true
+            while grew {
+                grew = false
+                for group in configuration.groups where !emittable.contains(group.id) {
+                    let anchored = group.memberIDs.contains {
+                        serverTagByID[$0] != nil || emittable.contains($0)
+                    }
+                    if anchored {
+                        emittable.insert(group.id)
+                        grew = true
+                    }
+                }
+            }
             // Groups sit between the leaf server outbounds and "out": each
-            // is a selector or url-test over its member servers, and "out"
-            // can route to any group as a whole.
+            // is a selector or url-test over its member servers and groups,
+            // and "out" can route to any group as a whole.
             var groupOutbounds: [[String: Any]] = []
-            for group in configuration.groups {
-                let groupMemberTags = group.memberIDs.compactMap { tagByMemberID[$0] }
+            for group in configuration.groups where emittable.contains(group.id) {
+                // A group that names itself would put its own tag in its
+                // member list, which the engine cannot resolve.
+                let groupMemberTags = group.memberIDs.compactMap { member -> String? in
+                    if member == group.id { return nil }
+                    if let tag = serverTagByID[member] { return tag }
+                    return emittable.contains(member) ? member.uuidString : nil
+                }
                 guard !groupMemberTags.isEmpty else { continue }
                 var outbound: [String: Any] = [
                     "type": group.kind == .urlTest ? "urltest" : "selector",
@@ -277,6 +307,7 @@ enum EngineConfigBuilder {
                 }
                 groupOutbounds.append(outbound)
             }
+            emittedTags = Set(memberTags).union(groupOutbounds.compactMap { $0["tag"] as? String })
             // "out" is a selector over every group and server, so the active
             // endpoint can be switched live (via the command client) without
             // a tunnel restart. The default is the first server, which
@@ -327,6 +358,27 @@ enum EngineConfigBuilder {
             userRules.append(entry)
         }
 
+        // A configuration's catch-all may name direct, reject, or a group,
+        // which the route's `final` field cannot express: it names only an
+        // outbound tag, and not every configuration has a reject outbound to
+        // name. It is emitted as a trailing rule instead. Leaving it unset is
+        // what keeps the output of a configuration that says nothing here
+        // byte for byte what it was.
+        let catchAll: [String: Any]?
+        switch configuration.finalPolicy.kind {
+        case .active:
+            catchAll = nil
+        case .direct:
+            catchAll = ["action": "direct"]
+        case .reject:
+            catchAll = ["action": "reject"]
+        case .outbound:
+            let tag: String? = configuration.finalPolicy.outboundID?.uuidString
+            let resolved: String = tag.flatMap { emittedTags.contains($0) ? $0 : nil } ?? "out"
+            catchAll = ["outbound": resolved]
+        }
+        let catchAllRules: [[String: Any]] = catchAll.map { [$0] } ?? []
+
         let routeRules: [[String: Any]]
         var route: [String: Any] = ["final": "out"]
         switch inbound {
@@ -334,7 +386,7 @@ enum EngineConfigBuilder {
             // DNS hijacking only makes sense in production, where the device
             // DNS servers sit behind the tunnel.
             routeRules = [["action": "sniff"],
-                          ["protocol": "dns", "action": "hijack-dns"]] + userRules
+                          ["protocol": "dns", "action": "hijack-dns"]] + userRules + catchAllRules
             route["auto_detect_interface"] = true
         case .tun(false):
             // Harness mode: anything addressed to port 53 goes to the
@@ -368,7 +420,7 @@ enum EngineConfigBuilder {
             // dialer to lo0 makes local delivery deterministic.
             route["default_interface"] = "lo0"
         case .mixedListener:
-            routeRules = [["action": "sniff"]] + userRules
+            routeRules = [["action": "sniff"]] + userRules + catchAllRules
             route["auto_detect_interface"] = true
         }
         route["rules"] = routeRules
