@@ -112,10 +112,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let engine = LibboxCoreEngine(tunnel: self)
         engineHolder.set(engine)
         let packetFlow = NetworkExtensionPacketFlow(flow: self.packetFlow)
+        // Hoisted so the task captures the sampler rather than the provider,
+        // which is not Sendable.
+        let sampler = self.memorySampler
         Task {
             do {
                 try await engine.start(configuration: config, packetFlow: packetFlow)
-                memorySampler.mark("extension-engine-started")
+                sampler.mark("extension-engine-started")
                 logger.info("tunnel up (real engine)")
                 TunnelStore().saveStatusMirror(NEVPNStatus.connected.rawValue)
                 WidgetCenter.shared.reloadAllTimelines()

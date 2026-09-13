@@ -537,6 +537,18 @@ struct TunnelConfigurationTests {
 }
 
 extension TunnelConfigurationTests {
+    /// A store whose starting profile is empty, so an import's effect on the
+    /// configuration is the only thing the assertions see. A store with no
+    /// saved state migrates the built-in starting configuration into its first
+    /// profile instead, which would put entries there before anything is
+    /// imported.
+    private func emptyStore(_ suite: String) throws -> TunnelStore {
+        let store = TunnelStore(suiteName: suite)
+        let profile = TunnelProfile(name: "Default", configuration: .empty)
+        try store.saveProfileSet(ProfileSet(profiles: [profile], activeProfileID: profile.id))
+        return store
+    }
+
     /// A document with a name, one server, a group over it, and a catch-all.
     private func sampleDocument(name: String = "Sample", host: String) -> String {
         """
@@ -560,12 +572,12 @@ extension TunnelConfigurationTests {
 
     @Test
     @MainActor
-    func importConfigurationCreatesAndSwitchesToANewProfile() {
+    func importConfigurationCreatesAndSwitchesToANewProfile() throws {
         let suite = "test.waypo.controller.import-config"
         UserDefaults().removePersistentDomain(forName: suite)
         defer { UserDefaults().removePersistentDomain(forName: suite) }
 
-        let store = TunnelStore(suiteName: suite)
+        let store = try emptyStore(suite)
         let controller = TunnelController(store: store)
         controller.reloadProfiles()
         let originalID = controller.activeProfileID
@@ -597,12 +609,12 @@ extension TunnelConfigurationTests {
 
     @Test
     @MainActor
-    func importTextFallsBackToAppendingEntries() {
+    func importTextFallsBackToAppendingEntries() throws {
         let suite = "test.waypo.controller.import-links"
         UserDefaults().removePersistentDomain(forName: suite)
         defer { UserDefaults().removePersistentDomain(forName: suite) }
 
-        let store = TunnelStore(suiteName: suite)
+        let store = try emptyStore(suite)
         let controller = TunnelController(store: store)
         controller.reloadProfiles()
 
@@ -618,12 +630,12 @@ extension TunnelConfigurationTests {
 
     @Test
     @MainActor
-    func importSkipsRepeatsWithinOneBatch() {
+    func importSkipsRepeatsWithinOneBatch() throws {
         let suite = "test.waypo.controller.import-batch"
         UserDefaults().removePersistentDomain(forName: suite)
         defer { UserDefaults().removePersistentDomain(forName: suite) }
 
-        let store = TunnelStore(suiteName: suite)
+        let store = try emptyStore(suite)
         let controller = TunnelController(store: store)
         controller.reloadProfiles()
 
@@ -931,12 +943,12 @@ extension TunnelConfigurationTests {
 
     @Test
     @MainActor
-    func aSourceThatCannotBeReachedAddsNoProfile() async {
+    func aSourceThatCannotBeReachedAddsNoProfile() async throws {
         let suite = "test.waypo.controller.subscription-unreachable"
         UserDefaults().removePersistentDomain(forName: suite)
         defer { UserDefaults().removePersistentDomain(forName: suite) }
 
-        let store = TunnelStore(suiteName: suite)
+        let store = try emptyStore(suite)
         let controller = TunnelController(store: store)
         controller.reloadProfiles()
 
