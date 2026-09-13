@@ -108,6 +108,36 @@ jobs:
           HARNESS_DIR=$(xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Debug -showBuildSettings ARCHS=arm64 ONLY_ACTIVE_ARCH=YES 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')
           sudo "$HARNESS_DIR/WaypoHarness" --self-test
 
+      # Release, not Debug: a Debug build inflates both the binary and the
+      # process footprint, so a Debug number means nothing against the limit
+      # the extension is held to.
+      #
+      # Non-gating on purpose. The first honest measurement cannot be the thing
+      # that fails a build; the gate is turned on once there is a baseline to
+      # compare against. Renderer output is buried in the step log, so the
+      # numbers go to the run summary where they can be read.
+      - name: Extension memory footprint
+        run: |
+          set -e
+          SLICE=$(find Core/Libbox.xcframework -maxdepth 1 -type d -name 'macos*' -exec basename {} \; | sort | head -1)
+          echo "macOS slice: $SLICE"
+          xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Release build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            "FRAMEWORK_SEARCH_PATHS=\$(SRCROOT)/Core/Libbox.xcframework/$SLICE" \
+            "OTHER_LDFLAGS=-F\$(SRCROOT)/Core/Libbox.xcframework/$SLICE -framework Libbox -framework IOUSBHost -framework SystemConfiguration -framework CoreWLAN -lresolv -lbsm"
+          HARNESS_DIR=$(xcodebuild -project Waypo.xcodeproj -target WaypoHarness -configuration Release -showBuildSettings ARCHS=arm64 ONLY_ACTIVE_ARCH=YES 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')
+          sudo "$HARNESS_DIR/WaypoHarness" --footprint --limit-mb 50 2>&1 | tee "$RUNNER_TEMP/footprint.txt" || true
+          {
+            echo '### Extension memory footprint'
+            echo '```'
+            grep -E '^FOOTPRINT|^traffic:|^engine ' "$RUNNER_TEMP/footprint.txt" || echo 'no reading was produced'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q 'over=1' "$RUNNER_TEMP/footprint.txt"; then
+            echo "::warning::peak footprint is over the 50 MB budget — request interception cannot fit in the extension at this size"
+          elif ! grep -q '^FOOTPRINT summary' "$RUNNER_TEMP/footprint.txt"; then
+            echo "::warning::the footprint run produced no summary line"
+          fi
+
       - name: Upload engine library
         uses: actions/upload-artifact@v4
         with:
