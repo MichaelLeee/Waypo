@@ -31,6 +31,7 @@ development path from the current scaffold to a polished, distributable app.
 The migration milestone: existing subscriptions must import and run cleanly.
 
 - Import the community-standard YAML configuration format (proxies, groups, rules, DNS) from files or remote URLs, with auto-update and provider quota display.
+- Export a profile back out to the same format, round-tripping servers, groups, rules, and DNS without dropping the entries the import could not represent.
 - Policy groups beyond the selector: url-test, fallback, load-balance — mapped to the engine's native group types; a groups view with inline latency and tap-to-switch.
 - macOS system-wide mode: the engine runs in-process in the Mac app with a local mixed inbound, and a small privileged helper (SMAppService daemon) applies and reverts the system-level network configuration. This also provides a full end-to-end path that requires no paid developer membership.
 - Transport completion: WireGuard (configuration-file import plus key handling UI), AnyTLS, Shadow-TLS v3.
@@ -60,10 +61,10 @@ The migration milestone: existing subscriptions must import and run cleanly.
 
 ## Phase 8 — Long-term
 
-- In-house core implementation (Rust, C-ABI) replacing the packaged library behind the same `CoreEngine` boundary — the decision gate is whether the packaged engine's memory ceiling blocks the Phase 6 scripting work.
+- In-house core implementation (Rust, C-ABI) replacing the packaged library behind the same `CoreEngine` boundary — the decision gate is whether the packaged engine's memory ceiling blocks the Phase 6 scripting work. Measured, the bare engine plus traffic sits at ~25% of the 50 MB budget, so the ceiling does not block it today; HTTPS decryption in the extension is the sharper test.
 - visionOS companion apps (control only).
 
 ## Cross-cutting tracks (never drop)
 
-- Instruments profiling of the extension against the ~50 MB memory ceiling, re-checked per transport added.
+- Memory budget for the extension: 50 MB `phys_footprint`, the figure the system terminates a process for. Measured on every commit by the `engine` job's `--footprint` step, which samples before the engine starts, with traffic in flight, and after shutdown, and fails the run past the budget. Baseline for a direct configuration carrying UDP traffic: 12.5 MiB peak, ~25% of budget — but on a macOS Release build, which has neither the extension loader nor the device's own limit, so read it as a floor rather than the device figure. Past 60% of budget the step annotates a warning: anything holding per-connection buffers in the extension, starting with the Phase 6 HTTPS decryption work, has to stream with strictly bounded buffers, and past 100% it cannot run in the extension at all. Re-checked per transport added.
 - Vocabulary discipline in this public repo: neutral terms only, in commits, docs, and comments.

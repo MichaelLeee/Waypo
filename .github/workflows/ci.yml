@@ -112,10 +112,14 @@ jobs:
       # process footprint, so a Debug number means nothing against the limit
       # the extension is held to.
       #
-      # Non-gating on purpose. The first honest measurement cannot be the thing
-      # that fails a build; the gate is turned on once there is a baseline to
-      # compare against. Renderer output is buried in the step log, so the
-      # numbers go to the run summary where they can be read.
+      # Gating on the budget, annotating at 60% of it. The baseline for a
+      # direct configuration under traffic is ~25%, so the warning is the early
+      # signal that a change has eaten the headroom request interception will
+      # need; crossing the budget itself is the hard stop.
+      #
+      # A run that produces no summary is an error rather than a warning: the
+      # reading is the deliverable here, so a silently absent number would let
+      # the gate rot into decoration.
       - name: Extension memory footprint
         run: |
           set -e
@@ -132,10 +136,18 @@ jobs:
             grep -E '^FOOTPRINT|^traffic:|^engine ' "$RUNNER_TEMP/footprint.txt" || echo 'no reading was produced'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          if ! grep -q '^FOOTPRINT summary' "$RUNNER_TEMP/footprint.txt"; then
+            echo "::error::the footprint run produced no summary line, so the memory gate has nothing to read"
+            exit 1
+          fi
           if grep -q 'over=1' "$RUNNER_TEMP/footprint.txt"; then
-            echo "::warning::peak footprint is over the 50 MB budget — request interception cannot fit in the extension at this size"
-          elif ! grep -q '^FOOTPRINT summary' "$RUNNER_TEMP/footprint.txt"; then
-            echo "::warning::the footprint run produced no summary line"
+            echo "::error::peak footprint is over the 50 MB budget — request interception cannot fit in the extension at this size"
+            exit 1
+          fi
+          BUDGET=$((50 * 1024 * 1024))
+          PEAK=$(sed -n 's/^FOOTPRINT summary peak_phys=\([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/footprint.txt" | head -1)
+          if [ -n "$PEAK" ] && [ "$PEAK" -ge $((BUDGET * 3 / 5)) ]; then
+            echo "::warning::$((PEAK * 100 / BUDGET))% of the 50 MB budget is in use — request interception will need strictly bounded per-connection buffers"
           fi
 
       - name: Upload engine library

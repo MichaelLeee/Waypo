@@ -104,6 +104,10 @@ func runFootprint(unit: Int32,
         }
         let receipts = echoServer.waitForReceipts(timeout: 5)
         print("traffic: sent=\(iterations)/\(sentBytes)B echoed=\(receipts.count)")
+        // Sampled before the engine is torn down: a reading taken afterwards
+        // measures the aftermath, and the number that matters is the
+        // high-water mark while traffic is in flight.
+        trace.mark("after-traffic")
 
         await engine.stop()
         trace.mark("stopped")
